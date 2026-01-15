@@ -1,19 +1,293 @@
 zabbix_export:
   version: '7.4'
   template_groups:
-    - uuid: a5e842886f3449339798729573884912
+    - uuid: dc07d96281734d23bd3281ce548b97eb
       name: 'Templates/Network devices'
+  host_groups:
+    - uuid: 7f1ba80763fa45b59c3a634ff0bb4633
+      name: All
   templates:
     - uuid: 4b29f9e138a54424912b65c7924d08e1
       template: 'Cisco Catalyst 9300 Switch'
       name: 'Cisco Catalyst 9300 Switch'
-      description: |
-        Monster template for Cisco 9300 switch by Vendel Cseh
-        
-        If you like this template pls support the development via paypal: csehvendel@gmail.com (: I'm drinking a lot of coffee, pizza and beer while I'm grinding this :)
       groups:
         - name: 'Templates/Network devices'
       items:
+        - uuid: 531005e53330473586672723c3475143
+          name: 'Config: Running last changed'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.43.1.1.1.0
+          key: cisco.config.running.last_changed
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Raw SysUpTime of last running config change.'
+          tags:
+            - tag: Monitoring
+              value: Configuration
+        - uuid: 6d6c6c74273543039336630654060505
+          name: 'Config: Startup last changed'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.43.1.1.3.0
+          key: cisco.config.startup.last_changed
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Raw SysUpTime of last write to startup-config (wr mem).'
+          tags:
+            - tag: Monitoring
+              value: Configuration
+        - uuid: 1962363109684503a365225333161021
+          name: 'Config: Synchronization Status'
+          type: CALCULATED
+          key: cisco.config.status
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          params: 'last(//cisco.config.running.last_changed) > last(//cisco.config.startup.last_changed)'
+          description: 'Összehasonlítja a Running és Startup config idejét. 1 = Running újabb (Nincs mentve).'
+          valuemap:
+            name: 'Cisco Config Status'
+          tags:
+            - tag: Monitoring
+              value: Configuration
+          triggers:
+            - uuid: '77051406027543409665276635560641'
+              expression: 'last(/Cisco Catalyst 9300 Switch/cisco.config.status)=1'
+              name: 'Cisco: Unsaved configuration changes detected'
+              priority: HIGH
+              description: 'A futó konfiguráció (running-config) újabb, mint a startup-config! Kérlek mentsd el a konfigurációt (wr mem).'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Configuration
+        - uuid: 8157981b3ac54f5581bd365a80545853
+          name: 'Switch CPU Usage (1m)'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.2.1.57.0
+          key: cisco.cpu.total.1m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          units: '%'
+          description: 'A switch teljes processzor terhelése (1 perces átlag).'
+          tags:
+            - tag: Monitoring
+              value: 'CPU Usage'
+          triggers:
+            - uuid: d7ff97b4247c44529f0b70b569049c57
+              expression: 'min(/Cisco Catalyst 9300 Switch/cisco.cpu.total.1m,5m) > 95'
+              name: 'CPU: Critical usage (>95%)'
+              priority: HIGH
+              description: 'A CPU terhelés kritikusan magas ({ITEM.LASTVALUE}) az elmúlt 5 percben.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'CPU Usage'
+            - uuid: 2e20384d02ca448d92d3cd4687d1dd47
+              expression: 'min(/Cisco Catalyst 9300 Switch/cisco.cpu.total.1m,5m) > 85'
+              name: 'CPU: High usage (>85%)'
+              priority: WARNING
+              description: 'A CPU terhelés magas ({ITEM.LASTVALUE}) az elmúlt 5 percben.'
+              manual_close: 'YES'
+              dependencies:
+                - name: 'CPU: Critical usage (>95%)'
+                  expression: 'min(/Cisco Catalyst 9300 Switch/cisco.cpu.total.1m,5m) > 95'
+              tags:
+                - tag: Monitoring
+                  value: 'CPU Usage'
+        - uuid: 52b3c4d5e6f74809a1b2c3d4e5f67891
+          name: 'Device Tracking: Active Entries'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.824.1.1.4.0
+          key: cisco.device_tracking.entries.active
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Az adatbázisban található aktív bejegyzések száma.'
+          tags:
+            - tag: Monitoring
+              value: 'Device Tracking'
+        - uuid: a1b2c3d4e5f647f890a1b2c3d4e5f679
+          name: 'Device Tracking: Conflict Entries'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.824.1.1.5.0
+          key: cisco.device_tracking.entries.conflict
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Konfliktusos állapotban lévő bejegyzések száma (IP-MAC conflict).'
+          tags:
+            - tag: Monitoring
+              value: 'Device Tracking'
+          triggers:
+            - uuid: f2e3d4c5b6a7489091234567890abcde
+              expression: 'last(/Cisco Catalyst 9300 Switch/cisco.device_tracking.entries.conflict)>0'
+              name: 'Device Tracking: IP Conflict detected'
+              priority: AVERAGE
+              description: 'IP cím konfliktus észlelhető! Az ARP és a Device Tracking adatbázis eltérést mutat.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Device Tracking'
+        - uuid: 8e3c4d5b6a7144e98f3a1b2c3d4e5f67
+          name: 'Device Tracking: Global Status'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.824.1.1.1.0
+          key: cisco.device_tracking.status
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Globális IP Device Tracking állapot (1=Enabled).'
+          valuemap:
+            name: 'Cisco Device Tracking Status'
+          tags:
+            - tag: Monitoring
+              value: 'Device Tracking'
+          triggers:
+            - uuid: d1e2f3a4b5c64789801234567890abcd
+              expression: 'last(/Cisco Catalyst 9300 Switch/cisco.device_tracking.status)<>1'
+              name: 'Device Tracking: Feature is DISABLED'
+              priority: WARNING
+              description: 'Az IP Device Tracking ki van kapcsolva! A hálózatbiztonsági funkciók nem működnek megfelelően.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Device Tracking'
+        - uuid: df87342199b5442781a3d6f0c2e1f4a9
+          name: 'DHCP Snooping: Global Status'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.380.1.1.1.0
+          key: cisco.dhcp_snooping.status
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'DHCP Snooping globális állapota (1=Enabled, 2=Disabled).'
+          valuemap:
+            name: 'Cisco DHCP Snooping Status'
+          tags:
+            - tag: Monitoring
+              value: 'DHCP Snooping'
+          triggers:
+            - uuid: c3e4f5a6b7d8491eb2c3d4e5f6789012
+              expression: 'last(/Cisco Catalyst 9300 Switch/cisco.dhcp_snooping.status)<>1'
+              name: 'Security: DHCP Snooping is DISABLED'
+              priority: WARNING
+              description: 'A DHCP Snooping globálisan ki van kapcsolva az eszközön!'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Dhcp Snooping'
+        - uuid: b3c4d5e6f7a849b081d2e3f4a5b6c7d8
+          name: 'Inventory: Building'
+          type: DEPENDENT
+          key: cisco.loc.building
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_ADDRESS_A
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'B:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: a2b3c4d5e6f748a980c1d2e3f4a5b6c7
+          name: 'Inventory: City'
+          type: DEPENDENT
+          key: cisco.loc.city
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_CITY
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'C:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: d5e6f7a8b9c041d283f4a5b6c7d8e9f0
+          name: 'Inventory: Latitude'
+          type: DEPENDENT
+          key: cisco.loc.lat
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LAT
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LAT:([-+]?[0-9]*\.?[0-9]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: e6f7a8b9c0d142e384a5b6c7d8e9f0a1
+          name: 'Inventory: Longitude'
+          type: DEPENDENT
+          key: cisco.loc.lon
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LON
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LONG:([-+]?[0-9]*\.?[0-9]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: c4d5e6f7a8b940c182e3f4a5b6c7d8e9
+          name: 'Inventory: Room'
+          type: DEPENDENT
+          key: cisco.loc.room
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_ADDRESS_B
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'R:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: 73d74571981846b0a8864f7831777265
+          name: 'Stack: Number of Members'
+          type: SNMP_AGENT
+          snmp_oid: 'walk[1.3.6.1.4.1.9.9.500.1.2.1.1.1]'
+          key: cisco.stack.member.count
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.trim().split(/\r?\n/);
+                  return (lines[0] === "" || lines[0].includes("No")) ? 0 : lines.length;
+          tags:
+            - tag: Monitoring
+              value: 'Stack Status'
+          triggers:
+            - uuid: 3015403260714777a840003024847953
+              expression: 'change(/Cisco Catalyst 9300 Switch/cisco.stack.member.count)<>0'
+              name: 'Stack: Number of members has changed'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+        - uuid: 4064377508004f149b8061f779774577
+          name: 'Stack: Ring Redundancy'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.500.1.1.3.0
+          key: cisco.stack.ring.redundant
+          history: 7d
+          valuemap:
+            name: 'Cisco Stack Redundancy Status'
+          tags:
+            - tag: Monitoring
+              value: 'Stack Status'
         - uuid: 8e3d2a1bc4d54e6fa7b8c9d0e1f2a3b4
           name: 'Network Device Tracking & Conflict Check'
           type: SNMP_AGENT
@@ -21,7 +295,6 @@ zabbix_export:
           key: net.device.tracking.full
           history: 7d
           value_type: TEXT
-          description: 'IPv4/IPv6 conflict monitor. Only shows status unless there is a problem.'
           preprocessing:
             - type: SNMP_WALK_TO_JSON
               parameters:
@@ -38,33 +311,21 @@ zabbix_export:
                       var data = JSON.parse(value);
                       var ipToMac = {};
                       var conflicts = [];
-                  
                       data.forEach(function (entry) {
                           if (!entry || !entry.oid) return;
                           var parts = entry.oid.split('.');
                           var isIPv6 = (parts[parts.length - (parts.length > 22 ? 17 : 5)] === "2");
                           var ipParts = isIPv6 ? parts.slice(-16) : parts.slice(-4);
                           var ip = isIPv6 ? ipParts.map(function(x) { var h = parseInt(x).toString(16); return h.length === 1 ? '0' + h : h; }).join(':').replace(/((?:00:){1,})00/g, '::') : ipParts.join('.');
-                          var rawValue = entry.value || "";
-                          var rawMac = rawValue.replace(/^Hex-STRING:\s*/i, '').trim();
-                          var mac = rawMac.toLowerCase().replace(/[:\s-]/g, '');
-                          
+                          var mac = (entry.value || "").replace(/^Hex-STRING:\s*/i, '').trim().toLowerCase().replace(/[:\s-]/g, '');
                           if (!mac || mac === "000000000000") return;
-                  
                           if (ipToMac[ip] && ipToMac[ip] !== mac) {
                               conflicts.push(ip + " (MAC1: " + ipToMac[ip] + ", MAC2: " + mac + ")");
                           }
                           ipToMac[ip] = mac;
                       });
-                  
-                      if (conflicts.length > 0) {
-                          return "CRITICAL - Conflict Detected:\n" + conflicts.join('\n');
-                      }
-                      
-                      return "OK - No Conflict Detected";
-                  } catch (e) {
-                      return "Hiba: " + e.message;
-                  }
+                      return conflicts.length > 0 ? "CRITICAL - Conflict Detected:\n" + conflicts.join('\n') : "OK - No Conflict Detected";
+                  } catch (e) { return "Hiba: " + e.message; }
           tags:
             - tag: Monitoring
               value: 'Device Tracking'
@@ -82,9 +343,81 @@ zabbix_export:
           tags:
             - tag: Monitoring
               value: RPVST
+        - uuid: e98c7b6a5d4e4f3c82b1a0b9c8d7e6f5
+          name: 'Inventory: MAC Address'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.17.1.1.0
+          key: system.hw.macaddr.inventory
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: MACADDRESS_A
+          tags:
+            - tag: Application
+              value: Inventory
+        - uuid: b65f4e3d2c1b4a9eb8d7c6b5a4938271
+          name: 'Inventory: Model (Type)'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.13.1
+          key: system.hw.model.inventory
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: TYPE
+          tags:
+            - tag: Application
+              value: Inventory
+        - uuid: d87b6a5c4d3e4f2b91a0b9c8d7e6f5a4
+          name: 'Inventory: Serial Number'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.11.1
+          key: system.hw.serialno.inventory
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: SERIALNO_A
+          tags:
+            - tag: Application
+              value: Inventory
+        - uuid: 93847e2a1c3b4f5d8a9b0c1d2e3f4a5b
+          name: 'System location'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.6.0
+          key: system.location
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION
+          tags:
+            - tag: Application
+              value: Inventory
+        - uuid: a54e3d2c1b0a4f9ea8d7c6b5a4938271
+          name: 'Inventory: Name'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.5.0
+          key: system.name.inventory
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: NAME
+          tags:
+            - tag: Application
+              value: Inventory
+        - uuid: c76a5b4c3d2e4f1a8b9c8d7e6f5a4b3c
+          name: 'Inventory: OS Version'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.10.1
+          key: system.sw.os.inventory
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: OS
+          tags:
+            - tag: Application
+              value: Inventory
       discovery_rules:
         - uuid: 9a8b7c6d5e4f4321a0b1c2d3e4f5a6b7
-          name: 'ARP Table Discovery'
+          name: 'Monitoring: ARP Table Discovery'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#ARP_MAC},1.3.6.1.2.1.4.22.1.2,{#ARP_IP},1.3.6.1.2.1.4.22.1.3]'
           key: arp.table.discovery
@@ -292,7 +625,7 @@ zabbix_export:
                   name: 'Fan Error: {#FAN_NAME} is NOT OK'
                   priority: HIGH
         - uuid: b3c4d5e6f7a84411a123817865245851
-          name: 'Hardware Discovery: Power Supply Status'
+          name: 'Monitoring: Power Supply Status'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#PSU_NAME},1.3.6.1.4.1.9.9.13.1.5.1.2]'
           key: cisco.envmon.psu.status.discovery
@@ -312,8 +645,243 @@ zabbix_export:
                   expression: 'last(/Cisco Catalyst 9300 Switch/ciscoEnvMonSupplyState[{#SNMPINDEX}])<>1 and last(/Cisco Catalyst 9300 Switch/ciscoEnvMonSupplyState[{#SNMPINDEX}])<>5'
                   name: 'PSU Error: {#PSU_NAME} is NOT OK'
                   priority: HIGH
+        - uuid: '32658824144445588331520650530630'
+          name: 'Storage Discovery (File System MIB)'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#FSNAME},1.3.6.1.4.1.9.9.229.1.1.1.1]'
+          key: cisco.fs.discovery
+          delay: 1h
+          filter:
+            conditions:
+              - macro: '{#FSNAME}'
+                value: '^(flash:|bootflash:|usb[0-9]*:|harddisk:)'
+          description: 'Fájlrendszerek felderítése a CISCO-FILE-SYSTEM-MIB segítségével.'
+          item_prototypes:
+            - uuid: '45277564032442478335022206140641'
+              name: 'Storage [{#FSNAME}]: Free Space'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.229.1.1.1.14.{#SNMPINDEX}'
+              key: 'cisco.fs.free[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Szabad hely bájtban (ciscoFileSystemFreeSpace).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: '66408221650346048557342080302526'
+              name: 'Storage [{#FSNAME}]: Total Size'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.229.1.1.1.13.{#SNMPINDEX}'
+              key: 'cisco.fs.total[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Teljes méret bájtban (ciscoFileSystemSize).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: '88506642145548239062331566336336'
+              name: 'Storage [{#FSNAME}]: Used Space'
+              type: CALCULATED
+              key: 'cisco.fs.used[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              params: 'last(//cisco.fs.total[{#SNMPINDEX}]) - last(//cisco.fs.free[{#SNMPINDEX}])'
+              description: 'Használt terület bájtban (Számított).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: '14601130644046468603666244621560'
+              name: 'Storage [{#FSNAME}]: Utilization'
+              type: CALCULATED
+              key: 'cisco.fs.util[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: '%'
+              params: '(last(//cisco.fs.total[{#SNMPINDEX}]) - last(//cisco.fs.free[{#SNMPINDEX}])) / last(//cisco.fs.total[{#SNMPINDEX}]) * 100'
+              description: 'Tároló kihasználtsága százalékban.'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+              trigger_prototypes:
+                - uuid: '41641002220445588665033016624443'
+                  expression: 'min(/Cisco Catalyst 9300 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 95'
+                  name: 'Storage [{#FSNAME}]: Critical usage (>95%)'
+                  priority: HIGH
+                  description: 'A tároló telítettsége kritikusan magas ({ITEM.LASTVALUE}). Törölj régi image fájlokat.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: Storage
+                - uuid: '52062406566441588880666010060012'
+                  expression: 'min(/Cisco Catalyst 9300 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 85'
+                  name: 'Storage [{#FSNAME}]: High usage (>85%)'
+                  priority: WARNING
+                  description: 'A tároló telítettsége magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Storage [{#FSNAME}]: Critical usage (>95%)'
+                      expression: 'min(/Cisco Catalyst 9300 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 95'
+                  tags:
+                    - tag: Monitoring
+                      value: Storage
+        - uuid: '85785087307049449338043685355933'
+          name: 'IP SLA Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IPSLA_TAG},1.3.6.1.4.1.9.9.42.1.2.1.1.3]'
+          key: cisco.ipsla.discovery
+          description: 'Felderíti az IP SLA méréseket a ''rttMonCtrlAdminTag'' alapján.'
+          item_prototypes:
+            - uuid: '17025816734045558022718366432402'
+              name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: RTT'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.42.1.2.10.1.1.{#SNMPINDEX}'
+              key: 'cisco.ipsla.rtt[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: ms
+              description: 'Az IP SLA mérés válaszideje (Completion Time). Index: {#SNMPINDEX}'
+              tags:
+                - tag: Monitoring
+                  value: 'Ip SLA'
+            - uuid: '52405073105544608332156644458315'
+              name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.42.1.2.10.1.2.{#SNMPINDEX}'
+              key: 'cisco.ipsla.status[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              description: 'Az IP SLA mérés státusza (Sense). Index: {#SNMPINDEX}'
+              valuemap:
+                name: 'Cisco IP SLA Status (Loose)'
+              tags:
+                - tag: Monitoring
+                  value: 'Ip SLA'
+              trigger_prototypes:
+                - uuid: '96333555306644028574163050411322'
+                  expression: 'last(/Cisco Catalyst 9300 Switch/cisco.ipsla.status[{#SNMPINDEX}])>2'
+                  name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: Check failed'
+                  priority: HIGH
+                  description: |
+                    Az IP SLA mérés hibát jelez (Timeout, Threshold error, stb).
+                    Aktuális státusz kód: {ITEM.LASTVALUE}
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Ip SLA'
+        - uuid: f47ac10b58cc4372a5670e02b2c3d47b
+          name: 'Location based tagging'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.6.0
+          key: cisco.location.discovery
+          delay: 1h
+          host_prototypes:
+            - uuid: 8f2e1a9c3b4d4e5fa6b7c8d9e0f1a2b4
+              host: '{#CITY}_{#BUILDING}_{#SNMPINDEX}'
+              name: '{#CITY} {#BUILDING} ({#SNMPINDEX})'
+              group_links:
+                - group:
+                    name: All
+              group_prototypes:
+                - name: 'Location/{#CITY}'
+                - name: 'Location/{#CITY} {#BUILDING}'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var loc = value;
+                  var city = loc.match(/C:([^ ]+)/) ? loc.match(/C:([^ ]+)/)[1] : 'Unknown';
+                  var bld = loc.match(/B:([^ ]+)/) ? loc.match(/B:([^ ]+)/)[1] : '';
+                  return JSON.stringify([{
+                    '{#CITY}': city,
+                    '{#BUILDING}': bld,
+                    '{#LOC_GROUP}': city + (bld ? ' ' + bld : '')
+                  }]);
+        - uuid: 644e1dd72a7d4b8fb52ec529188e9864
+          name: 'Memory Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#MEMNAME},1.3.6.1.4.1.9.9.48.1.1.1.2]'
+          key: cisco.memory.discovery
+          delay: 1h
+          description: 'Cisco Memory Pool-ok felderítése (pl. Processor, I/O).'
+          item_prototypes:
+            - uuid: 08a67923f36845e7a7c889b533668352
+              name: 'Memory [{#MEMNAME}]: Free'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.48.1.1.1.6.{#SNMPINDEX}'
+              key: 'cisco.memory.free[{#SNMPINDEX}]'
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Szabad memória mérete bájtban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+            - uuid: 7f9e542d22c643b786517667a4947f63
+              name: 'Memory [{#MEMNAME}]: Used'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.48.1.1.1.5.{#SNMPINDEX}'
+              key: 'cisco.memory.used[{#SNMPINDEX}]'
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Használt memória mérete bájtban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+            - uuid: 99d14620835642d49694067645163628
+              name: 'Memory [{#MEMNAME}]: Utilization'
+              type: CALCULATED
+              key: 'cisco.memory.util[{#SNMPINDEX}]'
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: '%'
+              params: 'last(//cisco.memory.used[{#SNMPINDEX}]) / (last(//cisco.memory.used[{#SNMPINDEX}]) + last(//cisco.memory.free[{#SNMPINDEX}])) * 100'
+              description: 'Számított memóriahasználat százalékban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+              trigger_prototypes:
+                - uuid: 51259a46950c48c0b53c914041697275
+                  expression: 'min(/Cisco Catalyst 9300 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 95'
+                  name: 'Memory [{#MEMNAME}]: Critical usage (>95%)'
+                  priority: HIGH
+                  description: 'A memóriahasználat kritikusan magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Memory Usage'
+                - uuid: 46d5f04a44224416921ef32729302197
+                  expression: 'min(/Cisco Catalyst 9300 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 85'
+                  name: 'Memory [{#MEMNAME}]: High usage (>85%)'
+                  priority: WARNING
+                  description: 'A memóriahasználat magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Memory [{#MEMNAME}]: Critical usage (>95%)'
+                      expression: 'min(/Cisco Catalyst 9300 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 95'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Memory Usage'
         - uuid: c5e6f7a8b9c04411a123817865247000
-          name: 'Hardware Discovery: Transceiver (SFP) Sensors'
+          name: 'Monitoring: Transceiver (SFP) Sensors'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#SENSOR_NAME},1.3.6.1.2.1.47.1.1.1.1.7,{#SENSOR_TYPE},1.3.6.1.4.1.9.9.91.1.1.1.1.1]'
           key: cisco.sfp.discovery
@@ -367,8 +935,54 @@ zabbix_export:
                   value: Signal
                   discover: DISCOVER
                   status: ENABLED
+        - uuid: e2f3a4b5c6d748f9a0b1c2d3e4f5a6b7
+          name: 'Stack members discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SNMPVALUE},1.3.6.1.4.1.9.9.500.1.2.1.1.1]'
+          key: cisco.stack.member.discovery
+          delay: 1h
+          item_prototypes:
+            - uuid: d1e2f3a4b5c647f889b0c1d2e3f4a5b6
+              name: 'Switch {#SWITCH_NUM}: Role'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.500.1.2.1.1.3.{#SNMPINDEX}'
+              key: 'cisco.stack.switch.role[{#SNMPINDEX}]'
+              history: 7d
+              valuemap:
+                name: 'Cisco Stack Role'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+            - uuid: c1d2e3f4a5b647f889a0b1c2d3e4f5a6
+              name: 'Switch {#SWITCH_NUM}: State'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.500.1.2.1.1.6.{#SNMPINDEX}'
+              key: 'cisco.stack.switch.state[{#SNMPINDEX}]'
+              history: 7d
+              valuemap:
+                name: 'Cisco Stack State'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+              trigger_prototypes:
+                - uuid: b2c3d4e5f6a748f9b0c1d2e3f4a5b6c7
+                  expression: 'last(/Cisco Catalyst 9300 Switch/cisco.stack.switch.state[{#SNMPINDEX}])<>4 and last(/Cisco Catalyst 9300 Switch/cisco.stack.switch.state[{#SNMPINDEX}])<>5'
+                  name: 'Switch {#SWITCH_NUM} state is not Ready/Master'
+                  priority: HIGH
+                  tags:
+                    - tag: Monitoring
+                      value: 'Stack Status'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  for (var i = 0; i < data.length; i++) {
+                      data[i]['{#SWITCH_NUM}'] = parseInt(data[i]['{#SNMPINDEX}']) / 1000;
+                  }
+                  return JSON.stringify(data);
         - uuid: 7d6c5b4a3e2f41d09c8b7a6e5d4c3b2a
-          name: 'Temperature Discovery'
+          name: 'Monitoring: Temperature Discovery'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#SENSOR_NAME},1.3.6.1.2.1.47.1.1.1.1.7,{#SENSOR_TYPE},1.3.6.1.4.1.9.9.91.1.1.1.1.1,{#SENSOR_PRECISION},1.3.6.1.4.1.9.9.91.1.1.1.1.3]'
           key: cisco.temp.discovery
@@ -394,7 +1008,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Temperature
         - uuid: a7b8c9d0e1f24411a123817865246100
-          name: 'Network Interface Discovery'
+          name: 'Monitoring: Network Interface Discovery'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
           key: net.if.discovery
@@ -586,7 +1200,7 @@ zabbix_export:
               description: 'Critical alert: A Trunk interface is DOWN.'
               manual_close: 'YES'
         - uuid: 5257520e76744080a747966336329705
-          name: 'Network Interface Discovery: Neighbors (Detailed)'
+          name: 'Monitoring: Neighbors Discovery'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
           key: net.if.discovery.neighbors.detailed
@@ -663,7 +1277,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Neighbors
         - uuid: a7b8c9d0e1f24411a123817865246105
-          name: 'Network Interface Discovery: Errors & Discards'
+          name: 'Monitoring: Network Interface Errors & Discards'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
           key: net.if.errors.discovery
@@ -771,7 +1385,7 @@ zabbix_export:
                   priority: WARNING
                   description: 'Detects outbound errors on the interface.'
         - uuid: a7b8c9d0e1f24411a123817865246802
-          name: 'Network Interface Discovery: Spanning Tree'
+          name: 'Monitoring: Spanning Tree'
           type: SNMP_AGENT
           snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
           key: net.if.stp.discovery
@@ -866,6 +1480,27 @@ zabbix_export:
               description: 'PoE consumption is approaching the total available power budget on Switch {#SNMPINDEX}.'
               manual_close: 'YES'
       valuemaps:
+        - uuid: '33130132211546458025061220625340'
+          name: 'Cisco Config Status'
+          mappings:
+            - value: '0'
+              newvalue: OK
+            - value: '1'
+              newvalue: 'Not Synchronized, please Save Configuration'
+        - uuid: 3c4d5e6f7a8b491ab2c3d4e5f6789012
+          name: 'Cisco Device Tracking Status'
+          mappings:
+            - value: '1'
+              newvalue: Enabled
+            - value: '2'
+              newvalue: Disabled
+        - uuid: 52b3c4d5e6f74809a1b2c3d4e5f67890
+          name: 'Cisco DHCP Snooping Status'
+          mappings:
+            - value: '1'
+              newvalue: Enabled
+            - value: '2'
+              newvalue: Disabled
         - uuid: 5c4d3e2f1a0b44a9a123817865245899
           name: 'Cisco EnvMon State'
           mappings:
@@ -907,6 +1542,84 @@ zabbix_export:
               newvalue: NotPresent
             - value: '7'
               newvalue: LowerLayerDown
+        - uuid: a827c37618954b88a390184719284766
+          name: 'Cisco IP SLA Oper Status'
+          mappings:
+            - value: '1'
+              newvalue: ok
+            - value: '4'
+              newvalue: timeout
+            - value: '16'
+              newvalue: overThreshold
+        - uuid: '41122355446648889333555511112222'
+          name: 'Cisco IP SLA Status (Loose)'
+          mappings:
+            - value: '1'
+              newvalue: OK
+            - value: '2'
+              newvalue: OK
+            - value: '3'
+              newvalue: Disconnected
+            - value: '4'
+              newvalue: 'Over Threshold'
+            - value: '5'
+              newvalue: Timeout
+            - value: '6'
+              newvalue: Busy
+            - value: '7'
+              newvalue: 'Not Connected'
+            - value: '8'
+              newvalue: Dropped
+            - value: '9'
+              newvalue: 'Sequence Error'
+        - uuid: 9935d2528154460787e91f1388048202
+          name: 'Cisco Stack Redundancy Status'
+          mappings:
+            - value: '1'
+              newvalue: Redundant
+            - value: '2'
+              newvalue: 'Non Redundant'
+            - value: '3'
+              newvalue: Standalone
+        - uuid: b1c2d3e4f5a647f889b0c1d2e3f4a5b6
+          name: 'Cisco Stack Role'
+          mappings:
+            - value: '1'
+              newvalue: Master
+            - value: '2'
+              newvalue: Member
+            - value: '3'
+              newvalue: 'Not Applicable'
+            - value: '4'
+              newvalue: Standby
+        - uuid: 4752533560244400a455013098679075
+          name: 'Cisco Stack Role Formatted'
+          mappings:
+            - value: '1'
+              newvalue: Master
+            - value: '2'
+              newvalue: Member
+            - value: '3'
+              newvalue: 'Not Member'
+            - value: '4'
+              newvalue: Standby
+        - uuid: a1b2c3d4e5f647f889b0c1d2e3f4a5b6
+          name: 'Cisco Stack State'
+          mappings:
+            - value: '1'
+              newvalue: Waiting
+            - value: '2'
+              newvalue: Progressing
+            - value: '3'
+              newvalue: Added
+            - value: '4'
+              newvalue: Ready
+            - value: '5'
+              newvalue: Master
+            - value: '6'
+              newvalue: Conflict
+            - value: '7'
+              newvalue: Removed
         - uuid: 5c4d3e2f1a0b44a9a123817865246805
           name: 'Cisco STP State'
           mappings:
@@ -922,3 +1635,33 @@ zabbix_export:
               newvalue: Forwarding
             - value: '6'
               newvalue: Broken
+  triggers:
+    - uuid: f9a3c2e1b5d448109637f1a2e4d8c5b0
+      expression: 'last(/Cisco Catalyst 9300 Switch/cisco.config.running.last_changed) > last(/Cisco Catalyst 9300 Switch/cisco.config.startup.last_changed)'
+      name: 'Cisco: Unsaved configuration changes detected'
+      priority: HIGH
+      description: 'A futó konfiguráció módosult az utolsó mentés óta! Reload esetén a változások elvesznek. Futtasd a ''write memory'' parancsot.'
+      manual_close: 'YES'
+      tags:
+        - tag: Monitoring
+          value: Configuration
+    - uuid: f96f8c054f2c462ab6d2105f27618239
+      expression: 'last(/Cisco Catalyst 9300 Switch/cisco.stack.ring.redundant)=2 and last(/Cisco Catalyst 9300 Switch/cisco.stack.member.count)>1'
+      name: 'Stack: Ring is not redundant'
+      priority: AVERAGE
+      description: 'Csak akkor riaszt, ha nincs redundancia ÉS több mint 1 tag van a stackben.'
+      manual_close: 'YES'
+      tags:
+        - tag: Monitoring
+          value: 'Stack Status'
+  graphs:
+    - uuid: c0ffee42d00d4b8c8f901234567890ab
+      name: 'CPU Usage (1m average)'
+      ymin_type_1: FIXED
+      ymax_type_1: FIXED
+      graph_items:
+        - drawtype: GRADIENT_LINE
+          color: 00FF00
+          item:
+            host: 'Cisco Catalyst 9300 Switch'
+            key: cisco.cpu.total.1m
