@@ -1,50 +1,110 @@
-# Zabbix-Cisco-9300-Monster-Template
-under development!
+Zabbix Cisco 9300 Monster Template
+A professional-grade, high-density Zabbix template specifically engineered for Cisco Catalyst 9300 Series switches. This template provides deep visibility into hardware health, network security, configuration compliance, and real-time SLA performance.
 
-Cisco Catalyst 9300 Zabbix Template
-A comprehensive Zabbix template for monitoring Cisco Catalyst 9300 Series switches via SNMP. Designed for high-density environments where tracking hardware health, transceiver levels, and network stability is critical.
+🚀 Key Features
+📍 Automated Geolocation & Inventory
+The template automatically populates Zabbix Inventory (City, Building, Room) and Geomap (Latitude/Longitude) by parsing the switch's location string. To enable this, configure your switch location using the following syntax:
 
-Key Features
-Conflict Tracking: Advanced JavaScript preprocessing to detect IPv4/IPv6 address conflicts (ARP/NDP) in real-time.
+Bash
 
-Hardware Discovery:
+snmp-server location C:City B:Building R:Room LAT:X.Y LONG:X.Y
+📉 Advanced IP SLA Monitoring
+Comprehensive monitoring for network quality and latency. The template discovers and tracks:
 
-Chassis & Modules: Automatic discovery of switch members, uplink modules, and stack cables with Serial Numbers and PIDs.
+ICMP & UDP Jitter: Track jitter, latency, and packet loss.
 
-Power Supplies: Status, model identification, and wattage extraction.
+TCP & UDP Echo: Monitor service availability.
 
-Fans: Detailed monitoring of fan tray health and status.
+DNS & HTTP Checks: Real-time application response time tracking.
 
-Interface Monitoring:
+🛡️ Security & Conflict Tracking
+ARP/NDP Conflict Detection: Identifies IP-MAC address collisions using JavaScript preprocessing.
 
-Traffic Stats: Detailed bits/packets (Unicast/Multicast/Broadcast) per second.
+Security Compliance: Monitors the status of DHCP Snooping and IP Device Tracking.
 
-Error Tracking: FCS errors, inbound/outbound discards, and physical layer issue detection.
+⚙️ Configuration & Hardware Health
+Unsaved Changes Alert: Triggers a HIGH priority alert if the running-config differs from the startup-config (reminds you to write memory).
 
-Intelligent Neighbors: Detailed CDP/LLDP neighbor discovery (identifies if the neighbor is an IP Phone, AP, Switch, or Router).
+Full Stack Discovery: Monitors stack ring redundancy, member counts, and serial numbers.
 
-Optics (SFP) Monitoring: Transceiver power levels (dBm), temperature, and voltage with pre-configured high/low signal triggers.
+Smart PSU Monitoring: Automatically identifies PSU models and extracts their rated wattage.
 
-PoE Management: Monitors total power budget vs. actual consumption per switch member, with high-usage alerts.
+Environmentals: Real-time status for all fans and transceiver (SFP) optical levels (dBm).
 
-Spanning Tree (RPVST): Tracks port states and alerts on blocked or "broken" states.
+🛠️ Configuration (Cisco CLI)
+To get the most out of this template, apply the following configuration to your Cisco 9300 switches:
 
-🛠️ Requirements
-Zabbix Version: 7.4 or newer.
+1. SLA Operations
 
-Protocol: SNMPv2 or SNMPv3.
+ip sla 10
+ udp-jitter ip.ip.ip.ip 5000 source-port 4000
+ tag udp-jitter
+ threshold 200
+ frequency 45
+ip sla schedule 10 life forever start-time now
 
-Device Configuration: Ensure SNMP is enabled on your Cisco switches. For detailed neighbor info, CDP/LLDP must be active.
+ip sla 20
+ icmp-echo ip.ip.ip.ip
+ tag icmp-echo
+ threshold 1
+ frequency 30
+ip sla schedule 20 life forever start-time now
 
-Installation
-Download the zbx_export_templates.yaml file.
+ip sla 30
+ tcp-connect ip.ip.ip.ip 5000 source-port 4000
+ tag tcp-connect
+ frequency 120
+ timeout 60
+ threshold 60
+ip sla schedule 30 life forever start-time now
 
-In Zabbix, go to Data collection > Templates.
+ip sla 40
+ udp-echo ip.ip.ip.ip 5001
+ tag udp-echo
+ threshold 200
+ frequency 45
+ip sla schedule 40 life forever start-time now
 
-Click Import and select the file.
+ip sla 50
+ icmp-jitter ip.ip.ip.ip
+ tag icmp-jitter
+ frequency 30
+ip sla schedule 50 life forever start-time now
 
-Link the template to your Cisco 9300 hosts.
+ip sla 60
+ dns example.com name-server ip.ip.ip.ip
+ tag dns-check
+ threshold 30
+ip sla schedule 60 life forever start-time now
 
-☕ Support the Project
-A lot of work and even more coffee went into this "scraping". If you find the script useful and would like to support the project (or just throw in a coffee/pizza for further development), you can do so here:
+ip sla 70
+ http get http://example.com
+ tag http-check
+ threshold 30
+ip sla schedule 70 life forever start-time now
+
+ip sla enable reaction-alerts
+2. Global Settings
+Bash
+
+# Set location for Inventory and Geomap
+snmp-server location C:[City] B:[Building] R:[Room] LAT:[Latitude] LONG:[Longitude]
+
+# Enable CDP/LLDP for neighbor discovery
+cdp run
+lldp run
+📥 Installation
+Import zbx_export_templates.yaml into Zabbix (Data collection > Templates).
+
+Link the "Cisco Catalyst 9300 Switch" template to your host.
+
+Ensure SNMP v2c/v3 is configured on the switch and the community string matches your Zabbix macro.
+
+Set the Host Inventory mode to "Automatic" in Zabbix.
+
+☕ Support
+If you find this template useful, consider supporting the development:
+
 PayPal: csehvendel@gmail.com
+
+Developed by csehvendel - Requires Zabbix 7.4+
