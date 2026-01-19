@@ -194,7 +194,7 @@ zabbix_export:
           master_item:
             key: system.location
         - uuid: 70980b4788e049e3afb3929e6f016887
-          name: 'Net: ARP Entries Count'
+          name: 'ARP Entries Count'
           type: DEPENDENT
           key: cisco.net.arp.count
           history: 7d
@@ -230,98 +230,12 @@ zabbix_export:
                       }
                   }
                   return JSON.stringify(output);
-          tags:
-            - tag: Monitoring
-              value: ARP
-        - uuid: 2003705539644beba1ea36b925e9d9a1
-          name: 'Net: IP Conflict Monitor'
-          type: DEPENDENT
-          key: cisco.net.ip.conflict
-          history: 7d
-          value_type: TEXT
-          description: 'Elemzi az adatbázist IP ütközésekért. (IPv6 Link-Local fe80:: címeket figyelmen kívül hagyja!)'
-          preprocessing:
-            - type: JAVASCRIPT
-              parameters:
-                - |
-                  var data = JSON.parse(value);
-                  var ipMap = {};
-                  var conflicts = [];
-                  
-                  for (var i = 0; i < data.length; i++) {
-                      var entry = data[i];
-                      var ip = entry.ip;
-                      var mac = entry.mac;
-                  
-                      // 1. Csak ervenyes adat
-                      // 2. 0.0.0.0-t kihagyjuk
-                      // 3. IPv6 Link-Local (fe80:) cimeket kihagyjuk
-                      if (ip && mac && ip !== '0.0.0.0' && ip.toLowerCase().indexOf('fe80:') !== 0) {
-                          
-                          if (ipMap[ip]) {
-                              // Mar lattuk ezt az IP-t. Ugyanaz a MAC?
-                              if (ipMap[ip] !== mac) {
-                                  // ELTERO MAC! UTKOZES!
-                                  conflicts.push(ip + ' [' + ipMap[ip] + ' vs ' + mac + ']');
-                              }
-                          } else {
-                              // Eloszor latjuk ezt az IP-t, elmentjuk a MAC-et
-                              ipMap[ip] = mac;
-                          }
-                      }
-                  }
-                  
-                  if (conflicts.length > 0) {
-                      return "CONFLICT: " + conflicts.join(", ");
-                  }
-                  return "OK";
-          master_item:
-            key: 'ssh.run[cisco.ipdt]'
-          tags:
-            - tag: Monitoring
-              value: 'IP Conflict'
-          triggers:
-            - uuid: 0c0669f906e346ccafb27a0cdf67ed60
-              expression: 'find(/Cisco Catalyst 9300 Switch/cisco.net.ip.conflict,,"like","CONFLICT")=1'
-              name: 'CRITICAL: IP Conflict detected! {ITEM.VALUE}'
-              priority: HIGH
-              description: 'A rendszer IP ütközést észlelt. Részletek az item értékében.'
-              manual_close: 'YES'
-              tags:
-                - tag: Scope
-                  value: Availability
-        - uuid: '74889694796043448937613583274650'
-          name: 'QoS Discovery Walk (Run hourly)'
-          type: SNMP_AGENT
-          snmp_oid: 'walk[1.3.6.1.4.1.9.9.166.1.7.1.1.1, 1.3.6.1.4.1.9.9.166.1.5.1.1.2]'
-          key: cisco.qos.walk
-          delay: 5m
-          history: '0'
-          value_type: TEXT
-          description: 'Nevek és indexek letöltése. (Idézőjel javítással)'
-          tags:
-            - tag: Application
-              value: 'Zabbix Internal'
-        - uuid: 66efe7ff4b31402f9b9b6956f5a2e264
-          name: 'Net: Device Tracking Total Count (SSH)'
-          type: DEPENDENT
-          key: cisco.ssh.ipdt.count
-          history: 7d
-          value_type: FLOAT
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - $.length()
-          master_item:
-            key: 'ssh.run[cisco.ipdt]'
-          tags:
-            - tag: Monitoring
-              value: Device-Tracking
         - uuid: 73d74571981846b0a8864f7831777265
           name: 'Stack: Number of Members'
           type: SNMP_AGENT
           snmp_oid: 'walk[1.3.6.1.4.1.9.9.500.1.2.1.1.1]'
           key: cisco.stack.member.count
+          delay: 5m
           preprocessing:
             - type: JAVASCRIPT
               parameters:
@@ -358,7 +272,7 @@ zabbix_export:
           key: net.stp.top_changes
           tags:
             - tag: Monitoring
-              value: RPVST
+              value: STP
         - uuid: 550e8400e29b41d4a716446655440003
           name: 'Service: Web (HTTP) status'
           type: SIMPLE
@@ -392,44 +306,56 @@ zabbix_export:
           tags:
             - tag: Monitoring
               value: 'Remote Access'
-        - uuid: 847907ca7d114a28a2a2cd62d04abb0c
-          name: 'SSH: Device Tracking Database (CLI)'
+        - uuid: 342f2bcf60f843e2bdf8f6ae8ab8ed0d
+          name: 'SSH: IPDT Data'
           type: SSH
           key: 'ssh.run[cisco.ipdt]'
           history: '0'
           value_type: TEXT
-          params: 'show device-tracking database | exclude ^$'
+          params: 'show device-tracking database | exclude FE80::'
           username: '{$SSH_USER}'
           password: '{$SSH_PASSWORD}'
-          description: 'SSH-n keresztül olvassa ki a ''show device-tracking database'' kimenetét, és JSON formátummá alakítja.'
-          preprocessing:
-            - type: JAVASCRIPT
-              parameters:
-                - |
-                  var lines = value.split(/\n/);
-                  var result = [];
-                  // Fejlec sorok atugrasa es adat kinyerese
-                  for (var i = 0; i < lines.length; i++) {
-                      var line = lines[i].trim();
-                      // Ha a sor egy tipussal kezdodik (L, ARP, ND, DH4, DH6) es van benne MAC cim formatus
-                      if (line.match(/^(L|ARP|ND|DH4|DH6)\s+/)) {
-                          var parts = line.split(/\s+/);
-                          if (parts.length >= 5) {
-                              result.push({
-                                  'type': parts[0],
-                                  'ip': parts[1],
-                                  'mac': parts[2],
-                                  'interface': parts[3],
-                                  'vlan': parts[4],
-                                  'state': parts[6] || 'UNKNOWN'
-                              });
-                          }
-                      }
-                  }
-                  return JSON.stringify(result);
-          tags:
-            - tag: Monitoring
-              value: Device-Tracking
+        - uuid: 6c969fa7098b4ba998c1c2d7cd95b2aa
+          name: 'SSH: PoE Data'
+          type: SSH
+          key: 'ssh.run[cisco.poe]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show power inline'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'PoE adatgyujtes.'
+        - uuid: 1409e93d13b74664b900a1a9d7055576
+          name: 'SSH: QoS Data'
+          type: SSH
+          key: 'ssh.run[cisco.qos]'
+          history: '0'
+          value_type: TEXT
+          params: 'show policy-map interface | include Ethernet|Class-map:|drop rate|bytes output'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'QoS adatgyujtes (Interface, Class, Drop rate, Bytes output).'
+        - uuid: 90c6de1f000c4630bb779a72804c8bc9
+          name: 'SSH: Stack Power Data'
+          type: SSH
+          key: 'ssh.run[cisco.stack]'
+          history: '0'
+          value_type: TEXT
+          params: 'show stack-power'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'Stack Power adatgyujtes.'
+        - uuid: 37001069e41b477c9f60a82a2860a460
+          name: 'SSH: STP Data'
+          type: SSH
+          key: 'ssh.run[cisco.stp]'
+          history: '0'
+          value_type: TEXT
+          params: 'show spanning-tree'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'Spanning Tree adatgyujtes.'
         - uuid: e98c7b6a5d4e4f3c82b1a0b9c8d7e6f5
           name: 'Inventory: MAC Address'
           type: SNMP_AGENT
@@ -439,9 +365,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: MACADDRESS_A
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
         - uuid: b65f4e3d2c1b4a9eb8d7c6b5a4938271
           name: 'Inventory: Model (Type)'
           type: SNMP_AGENT
@@ -451,9 +374,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: TYPE
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
         - uuid: d87b6a5c4d3e4f2b91a0b9c8d7e6f5a4
           name: 'Inventory: Serial Number'
           type: SNMP_AGENT
@@ -463,9 +383,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: SERIALNO_A
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
         - uuid: 93847e2a1c3b4f5d8a9b0c1d2e3f4a5b
           name: 'System location'
           type: SNMP_AGENT
@@ -475,9 +392,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: LOCATION
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
         - uuid: a54e3d2c1b0a4f9ea8d7c6b5a4938271
           name: 'Inventory: Name'
           type: SNMP_AGENT
@@ -487,9 +401,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: NAME
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
         - uuid: c76a5b4c3d2e4f1a8b9c8d7e6f5a4b3c
           name: 'Inventory: OS Version'
           type: SNMP_AGENT
@@ -499,9 +410,6 @@ zabbix_export:
           history: 7d
           value_type: CHAR
           inventory_link: OS
-          tags:
-            - tag: 'Master Switch'
-              value: Inventory
       discovery_rules:
         - uuid: 9a8b7c6d5e4f4321a0b1c2d3e4f5a6b7
           name: 'Monitoring: ARP Table Discovery'
@@ -822,78 +730,66 @@ zabbix_export:
                   tags:
                     - tag: Monitoring
                       value: Storage
-        - uuid: '05e83921822849889445101672322588'
-          name: 'Active Ports Discovery (Device Tracking v3)'
+        - uuid: a43d1f7b7bcb4e1fb1dd33f98d8aa5c4
+          name: 'Monitoring: IPDT'
           type: DEPENDENT
-          key: cisco.ipdt.discovery.v3
-          description: 'Portok felfedezése IP Monitorozáshoz.'
+          key: cisco.ipdt.discovery
           item_prototypes:
-            - uuid: 423233306663471ca040778895055010
-              name: 'Interface {#IFNAME}: Neighbor IP Address(es)'
+            - uuid: 5cd81a8eaba44887bf6ec634e3dba06f
+              name: 'Interface {#IFNAME}: Neighbor IP(s)'
               type: DEPENDENT
-              key: 'cisco.port.ip.monitor.v3[{#IFNAME}]'
-              history: 7d
+              key: 'cisco.ipdt.ip[{#IFNAME}]'
               value_type: TEXT
-              description: 'A porton lévő eszközök IP címei.'
               preprocessing:
                 - type: JAVASCRIPT
                   parameters:
                     - |
-                      try {
-                          var data = JSON.parse(value);
-                          var targetIf = "{#IFNAME}";
-                          var v4 = [];
-                          var v6 = [];
-                      
-                          for (var i = 0; i < data.length; i++) {
-                              if (data[i].interface === targetIf) {
-                                  if (['L', 'ARP', 'DH4'].indexOf(data[i].type) !== -1) {
-                                       if (v4.indexOf(data[i].ip) === -1) v4.push(data[i].ip);
-                                  }
-                                  if (['ND', 'DH6'].indexOf(data[i].type) !== -1) {
-                                       if (v6.indexOf(data[i].ip) === -1) v6.push(data[i].ip);
-                                  }
+                      var lines = value.split('\n');
+                      var targetIf = '{#IFNAME}';
+                      var ips = [];
+                      function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                      for (var i = 0; i < lines.length; i++) {
+                          var l = lines[i].trim();
+                          var m = l.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+                          if (m) {
+                              var currentIf = clean(m[4]);
+                              if (currentIf === targetIf) {
+                                  ips.push(m[2]);
                               }
                           }
-                      
-                          var res = [];
-                          if (v4.length) res.push("IPv4: " + v4.join(', '));
-                          if (v6.length) res.push("IPv6: " + v6.join(', '));
-                      
-                          return res.length ? res.join(' | ') : 'No IP detected';
-                      } catch(e) {
-                          return '';
                       }
-                - type: DISCARD_UNCHANGED_HEARTBEAT
-                  parameters:
-                    - 1h
+                      return ips.length > 0 ? ips.join(', ') : 'No IP';
               master_item:
                 key: 'ssh.run[cisco.ipdt]'
               tags:
                 - tag: Monitoring
-                  value: 'IP Monitor'
+                  value: 'Device Tracking'
           master_item:
             key: 'ssh.run[cisco.ipdt]'
           preprocessing:
             - type: JAVASCRIPT
               parameters:
                 - |
-                  try {
-                      var data = JSON.parse(value);
-                      var ifaces = {};
-                      var result = [];
-                  
-                      for (var i = 0; i < data.length; i++) {
-                          var ifName = data[i].interface;
-                          if (ifName && ifName !== '-' && !ifaces[ifName]) {
-                              ifaces[ifName] = 1;
-                              result.push({'{#IFNAME}': ifName});
-                          }
+                  var lines = value.split('\n');
+                  var output = [];
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var l = lines[i].trim();
+                      var m = l.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+                      if (m && m[4].match(/^(Gi|Te|Fa)/)) {
+                          output.push({ '{#IFNAME}': clean(m[4]) });
                       }
-                      return JSON.stringify(result);
-                  } catch (e) {
-                      return '[]';
                   }
+                  var uniqueOutput = [];
+                  var seen = {};
+                  for(var i = 0; i < output.length; i++) {
+                      var name = output[i]['{#IFNAME}'];
+                      if(!seen[name]) {
+                          seen[name] = true;
+                          uniqueOutput.push(output[i]);
+                      }
+                  }
+                  return JSON.stringify(uniqueOutput);
         - uuid: '85785087307049449338043685355933'
           name: 'IP SLA Discovery'
           type: SNMP_AGENT
@@ -1039,105 +935,137 @@ zabbix_export:
                   tags:
                     - tag: Monitoring
                       value: 'Memory Usage'
-        - uuid: 9218374650194382a173465019283746
-          name: 'Cisco QoS Discovery'
+        - uuid: 74d3c1118c3840d39a956dd6b6ab57a7
+          name: 'PoE Interface Discovery'
           type: DEPENDENT
-          key: cisco.qos.discovery
-          filter:
-            evaltype: AND
-            conditions:
-              - macro: '{#QOSNAME}'
-                value: '.*(system-cpp-police|AutoQos|class-default).*'
+          key: cisco.poe.discovery
           item_prototypes:
-            - uuid: a1b2c3d4e5f647898a9b0c1d2e3f4a5b
-              name: 'Neighbors: {#IFNAME}'
+            - uuid: 0ee6b37d2b37431c8167bdf0fa412839
+              name: 'Interface {#IFNAME}: PoE Power Consumed'
               type: DEPENDENT
-              key: 'cisco.port.devices.v2[{#IFNAME}]'
-              history: 7d
-              value_type: TEXT
-              description: 'A porton lévő eszközök IP címei.'
+              key: 'cisco.poe.watts[{#IFNAME}]'
+              value_type: FLOAT
+              units: W
               preprocessing:
                 - type: JAVASCRIPT
                   parameters:
                     - |
-                      try {
-                          var data = JSON.parse(value);
-                          var targetIf = "{#IFNAME}";
-                          var v4 = [];
-                          var v6 = [];
-                      
-                          for (var i = 0; i < data.length; i++) {
-                              if (data[i].interface === targetIf) {
-                                  if (['L', 'ARP', 'DH4'].indexOf(data[i].type) !== -1) {
-                                       if (v4.indexOf(data[i].ip) === -1) v4.push(data[i].ip);
-                                  }
-                                  if (['ND', 'DH6'].indexOf(data[i].type) !== -1) {
-                                       if (v6.indexOf(data[i].ip) === -1) v6.push(data[i].ip);
-                                  }
-                              }
+                      var lines = value.split('\n');
+                      for (var i = 0; i < lines.length; i++) {
+                          if (lines[i].indexOf('{#IFNAME}') !== -1) {
+                              var m = lines[i].match(/(\d+\.\d+)/);
+                              return m ? m[1] : 0;
                           }
-                      
-                          var res = [];
-                          if (v4.length) res.push("IPv4: " + v4.join(', '));
-                          if (v6.length) res.push("IPv6: " + v6.join(', '));
-                      
-                          return res.length ? res.join(' | ') : '';
-                      } catch(e) {
-                          return '';
                       }
-                - type: DISCARD_UNCHANGED_HEARTBEAT
-                  parameters:
-                    - 1h
+                      return 0;
               master_item:
-                key: 'ssh.run[cisco.ipdt]'
+                key: 'ssh.run[cisco.poe]'
               tags:
                 - tag: Monitoring
-                  value: Neighbors
-            - uuid: b1c2d3e4f5a647899b9c0d1e2f3a4b5c
-              name: 'QoS: {#QOSNAME} dropped'
-              type: SNMP_AGENT
-              snmp_oid: '1.3.6.1.4.1.9.9.166.1.15.1.1.14.{#SNMPINDEX}'
-              key: 'qos.dropped[{#SNMPINDEX}]'
-              history: 7d
-              units: Bps
-              preprocessing:
-                - type: CHANGE_PER_SECOND
-              tags:
-                - tag: Monitoring
-                  value: QoS
+                  value: PoE
           master_item:
-            key: cisco.qos.walk
+            key: 'ssh.run[cisco.poe]'
           preprocessing:
             - type: JAVASCRIPT
               parameters:
                 - |
-                  var input = JSON.parse(value);
-                  var names = {};
+                  var lines = value.split('\n');
                   var result = [];
-                  
-                  // 1. Nevek kigyujtese es IDEZOJEL TAKARITAS
-                  input.forEach(function(v) {
-                    if (v.oid.indexOf('1.3.6.1.4.1.9.9.166.1.7.1.1.1') !== -1) {
-                      // Remove quotes from start and end
-                      var cleanName = v.value.replace(/^"|"$/g, '');
-                      names[v.oid.split('.').pop()] = cleanName;
-                    }
-                  });
-                  
-                  // 2. Indexek parositasa
-                  input.forEach(function(v) {
-                    if (v.oid.indexOf('1.3.6.1.4.1.9.9.166.1.5.1.1.2') !== -1) {
-                      var parts = v.oid.split('.');
-                      var objIdx = parts[parts.length-2] + '.' + parts[parts.length-1];
-                      var cfgIdx = v.value;
-                      if (names[cfgIdx]) {
-                        result.push({
-                          '{#SNMPINDEX}': objIdx,
-                          '{#QOSNAME}': names[cfgIdx]
-                        });
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var m = lines[i].match(/^(Gi|Te|Fa)[0-9\/]+\s+(on|off|auto)/);
+                      if (m) { result.push({ '{#IFNAME}': clean(m[0].split(' ')[0]) }); }
+                  }
+                  return JSON.stringify(result);
+        - uuid: 4d76459d3bee480fb2383e73fb58b74f
+          name: 'Monitoring: QoS'
+          type: DEPENDENT
+          key: cisco.qos.discovery
+          item_prototypes:
+            - uuid: b823f61259f349f78c8690c30f37184c
+              name: 'Interface {#IFNAME}: QoS {#CLASSNAME} Bytes Output'
+              type: DEPENDENT
+              key: 'cisco.qos.bytes[{#IFNAME},{#CLASSNAME}]'
+              value_type: FLOAT
+              units: B
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      var targetIf = '{#IFNAME}'; var targetClass = '{#CLASSNAME}';
+                      var currIf = '', currClass = '';
+                      function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                      for (var i = 0; i < lines.length; i++) {
+                          var l = lines[i].trim();
+                          if (l.match(/^(GigabitEthernet|TenGigabitEthernet|FastEthernet|Gi|Te|Fa)[0-9\/]+/)) { 
+                              currIf = clean(l.split(' ')[0]); 
+                          }
+                          if (l.match(/^Class-map:/)) { currClass = l.split(':')[1].trim().split(' ')[0]; }
+                          // FIX: Allow closing parenthesis ')' after bytes output
+                          if (currIf === targetIf && currClass === targetClass && l.match(/bytes output/)) {
+                              var m = l.match(/bytes output\)?\s+(\d+)/); return m ? m[1] : 0;
+                          }
                       }
-                    }
-                  });
+                      return 0;
+              master_item:
+                key: 'ssh.run[cisco.qos]'
+              tags:
+                - tag: Monitoring
+                  value: QoS
+            - uuid: a921f61249f349f68c8680c30f37183b
+              name: 'Interface {#IFNAME}: QoS {#CLASSNAME} Drop Rate'
+              type: DEPENDENT
+              key: 'cisco.qos.droprate[{#IFNAME},{#CLASSNAME}]'
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      var targetIf = '{#IFNAME}'; var targetClass = '{#CLASSNAME}';
+                      var currIf = '', currClass = '';
+                      function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                      for (var i = 0; i < lines.length; i++) {
+                          var l = lines[i].trim();
+                          if (l.match(/^(GigabitEthernet|TenGigabitEthernet|FastEthernet|Gi|Te|Fa)[0-9\/]+/)) { 
+                              currIf = clean(l.split(' ')[0]); 
+                          }
+                          if (l.match(/^Class-map:/)) { currClass = l.split(':')[1].trim().split(' ')[0]; }
+                          if (currIf === targetIf && currClass === targetClass && l.match(/drop rate/)) {
+                              var m = l.match(/drop rate\s+(\d+)/); return m ? m[1] : 0;
+                          }
+                      }
+                      return 0;
+              master_item:
+                key: 'ssh.run[cisco.qos]'
+              tags:
+                - tag: Monitoring
+                  value: QoS
+              trigger_prototypes:
+                - uuid: 3aac9d27435d43d4b06043a413bd70ed
+                  expression: 'last(/Cisco Catalyst 9300 Switch/cisco.qos.droprate[{#IFNAME},{#CLASSNAME}])>0'
+                  name: 'Interface {#IFNAME} QoS: Packets dropped in class {#CLASSNAME}'
+                  priority: AVERAGE
+          master_item:
+            key: 'ssh.run[cisco.qos]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split('\n');
+                  var result = []; var currIf = '';
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var l = lines[i].trim();
+                      if (l.match(/^(GigabitEthernet|TenGigabitEthernet|FastEthernet|Gi|Te|Fa)[0-9\/]+/)) { 
+                          currIf = clean(l.split(' ')[0]); 
+                      }
+                      if (l.match(/^Class-map:/) && currIf !== '') {
+                          result.push({ '{#IFNAME}': currIf, '{#CLASSNAME}': l.split(':')[1].trim().split(' ')[0] });
+                      }
+                  }
                   return JSON.stringify(result);
         - uuid: c5e6f7a8b9c04411a123817865247000
           name: 'Monitoring: Transceiver (SFP) Sensors'
@@ -1240,6 +1168,52 @@ zabbix_export:
                       data[i]['{#SWITCH_NUM}'] = parseInt(data[i]['{#SNMPINDEX}']) / 1000;
                   }
                   return JSON.stringify(data);
+        - uuid: 152ad21462704ad2ba9fa201e1d4d42e
+          name: 'STP Interface Discovery'
+          type: DEPENDENT
+          key: cisco.stp.discovery
+          item_prototypes:
+            - uuid: 727a2b202fa84d71a3226cfbbe46abed
+              name: 'Interface {#IFNAME}: STP State'
+              type: DEPENDENT
+              key: 'cisco.stp.state[{#IFNAME}]'
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      for (var i = 0; i < lines.length; i++) {
+                          if (lines[i].indexOf('{#IFNAME}') !== -1 || lines[i].indexOf('{#IFNAME}'.replace('Gi', 'GigabitEthernet')) !== -1) {
+                              var m = lines[i].trim().match(/^(\S+)\s+\S+\s+(\w+)\s+\d+/);
+                              if (m) return m[2];
+                          }
+                      }
+                      return 'N/A';
+              master_item:
+                key: 'ssh.run[cisco.stp]'
+              tags:
+                - tag: Monitoring
+                  value: STP
+              trigger_prototypes:
+                - uuid: ef73c039463e4da98afb95229a71d9c2
+                  expression: 'last(/Cisco Catalyst 9300 Switch/cisco.stp.state[{#IFNAME}])="BLK"'
+                  name: 'Interface {#IFNAME}: STP is in BLOCKING state'
+                  priority: WARNING
+          master_item:
+            key: 'ssh.run[cisco.stp]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split('\n');
+                  var result = [];
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').replace('Port-channel', 'Po').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var m = lines[i].trim().match(/^(\w{2}[0-9\/]+)\s+\S+\s+(\w+)\s+\d+/);
+                      if (m) { result.push({ '{#IFNAME}': clean(m[1]) }); }
+                  }
+                  return JSON.stringify(result);
         - uuid: 7d6c5b4a3e2f41d09c8b7a6e5d4c3b2a
           name: 'Monitoring: Temperature Discovery'
           type: SNMP_AGENT
@@ -1643,44 +1617,6 @@ zabbix_export:
                   name: 'Interface {#IFNAME}: High outbound error rate'
                   priority: WARNING
                   description: 'Detects outbound errors on the interface.'
-        - uuid: a7b8c9d0e1f24411a123817865246802
-          name: 'Monitoring: Spanning Tree'
-          type: SNMP_AGENT
-          snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
-          key: net.if.stp.discovery
-          item_prototypes:
-            - uuid: 891011121234412381231234567890ab
-              name: 'Interface {#IFNAME}: RPVST State'
-              type: SNMP_AGENT
-              snmp_oid: '1.3.6.1.2.1.17.2.15.1.3.{#SNMPINDEX}'
-              key: 'net.if.stp.state[{#IFNAME}]'
-              history: 7d
-              trends: '0'
-              description: 'Spanning Tree Protocol state of the port (Standard MIB). Note: In RPVST mode, this usually shows data only for VLAN 1 / Trunks.'
-              valuemap:
-                name: 'Cisco STP State'
-              tags:
-                - tag: Monitoring
-                  value: RPVST
-              trigger_prototypes:
-                - uuid: 901011121234412381231234567890ac
-                  expression: 'last(/Cisco Catalyst 9300 Switch/net.if.stp.state[{#IFNAME}])=2'
-                  name: 'Interface {#IFNAME}: RPVST Blocked (Discarding)'
-                  priority: HIGH
-                  description: 'Port is in Spanning Tree Blocking/Discarding state.'
-                  manual_close: 'YES'
-                - uuid: b01011121234412381231234567890ae
-                  expression: 'last(/Cisco Catalyst 9300 Switch/net.if.stp.state[{#IFNAME}])=6'
-                  name: 'Interface {#IFNAME}: RPVST Broken'
-                  priority: DISASTER
-                  description: 'Port STP state is Broken. Investigate immediately (e.g. PVID mismatch).'
-                  manual_close: 'YES'
-                - uuid: a01011121234412381231234567890ad
-                  expression: 'change(/Cisco Catalyst 9300 Switch/net.if.stp.state[{#IFNAME}])<>0'
-                  name: 'Interface {#IFNAME}: RPVST State Changed'
-                  priority: INFO
-                  description: 'Spanning Tree state has changed (e.g. Listening -> Forwarding).'
-                  manual_close: 'YES'
         - uuid: 5e78a2b561c2449ba123817865246900
           name: 'Hardware Discovery: PoE Ports'
           type: SNMP_AGENT
@@ -1719,7 +1655,7 @@ zabbix_export:
               description: 'The total power the PSE can supply (pethMainPsePower).'
               tags:
                 - tag: Monitoring
-                  value: PoE
+                  value: 'Power Supply'
             - uuid: a1b2c3d4e5f64711801234567890def2
               name: 'PoE: Switch {#SNMPINDEX} - Power Consumption'
               type: SNMP_AGENT
@@ -1730,7 +1666,7 @@ zabbix_export:
               description: 'The actual power measured by the PSE (pethMainPseConsumptionPower).'
               tags:
                 - tag: Monitoring
-                  value: PoE
+                  value: 'Power Supply'
           trigger_prototypes:
             - uuid: f2b2c3d4e5f64711801234567890abc1
               expression: 'last(/Cisco Catalyst 9300 Switch/poe.consumption[{#SNMPINDEX}]) > (last(/Cisco Catalyst 9300 Switch/poe.budget[{#SNMPINDEX}]) * 0.9)'
