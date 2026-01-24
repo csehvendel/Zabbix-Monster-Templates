@@ -1,1 +1,3 @@
 
+
+If you like the project, support it with PayPal (csehvendel@gmail.com) because a lot of coffee is being sold while I'm grinding this...
