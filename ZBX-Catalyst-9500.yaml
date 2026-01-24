@@ -1,0 +1,2212 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: daa9e4eea3a245dc993854bb64ea1cd7
+      name: 'Templates/Network devices'
+  host_groups:
+    - uuid: dbfe54f045f0485a94f22c6bcb22a546
+      name: All
+  templates:
+    - uuid: c5ed65b60ce646909683b99fb8733e7c
+      template: 'Cisco Catalyst 9500 Switch'
+      name: 'Cisco Catalyst 9500 Switch'
+      groups:
+        - name: 'Templates/Network devices'
+      items:
+        - uuid: ae0d9ab7b49e49d3832de1579f1effa7
+          name: 'Config: Running last changed'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.43.1.1.1.0
+          key: cisco.config.running.last_changed
+          delay: 10m
+          history: 7d
+          trends: '0'
+          units: unixtime
+          tags:
+            - tag: Monitoring
+              value: Configuration
+        - uuid: 80fefc62b2ef460896e68cc75f8a4d9f
+          name: 'Config: Startup last changed'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.9.43.1.1.3.0
+          key: cisco.config.startup.last_changed
+          delay: 10m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          description: 'Raw SysUpTime of last write to startup-config (wr mem).'
+          tags:
+            - tag: Monitoring
+              value: Configuration
+        - uuid: 8a62a5bbd1c04e2585c9036d4e0f8308
+          name: 'Config: Synchronization Status'
+          type: CALCULATED
+          key: cisco.config.status
+          delay: 10m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          params: 'last(//cisco.config.running.last_changed) > last(//cisco.config.startup.last_changed)'
+          description: 'Összehasonlítja a Running és Startup config idejét. 1 = Running újabb (Nincs mentve).'
+          valuemap:
+            name: 'Cisco Config Status'
+          tags:
+            - tag: Monitoring
+              value: Configuration
+        - uuid: 38d1b0274cf84eaaa07f873939337423
+          name: 'Switch CPU Usage (1m)'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.4.1.9.2.1.57.0
+          key: cisco.cpu.total.1m
+          delay: 5m
+          history: 7d
+          value_type: FLOAT
+          trends: 90d
+          units: '%'
+          description: 'A switch teljes processzor terhelése (1 perces átlag).'
+          tags:
+            - tag: Monitoring
+              value: 'CPU Usage'
+          triggers:
+            - uuid: 5cd98383e9cb4b1bbab35b3bbeca465a
+              expression: 'min(/Cisco Catalyst 9500 Switch/cisco.cpu.total.1m,5m) > 95'
+              name: 'Critical CPU usage (>95%)'
+              priority: HIGH
+              description: 'A CPU terhelés kritikusan magas ({ITEM.LASTVALUE}) az elmúlt 5 percben.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'CPU Usage'
+            - uuid: 2d94f64a6f0e4f28995d432808541cd7
+              expression: 'min(/Cisco Catalyst 9500 Switch/cisco.cpu.total.1m,5m) > 85'
+              name: 'High CPU usage (>85%)'
+              priority: AVERAGE
+              description: 'A CPU terhelés magas ({ITEM.LASTVALUE}) az elmúlt 5 percben.'
+              manual_close: 'YES'
+              dependencies:
+                - name: 'Critical CPU usage (>95%)'
+                  expression: 'min(/Cisco Catalyst 9500 Switch/cisco.cpu.total.1m,5m) > 95'
+              tags:
+                - tag: Monitoring
+                  value: 'CPU Usage'
+        - uuid: 0f09d64cb9b04a4bbc562985e9319958
+          name: 'Security: Device Tracking Conflict Status'
+          type: DEPENDENT
+          key: cisco.ipdt.conflict.status
+          history: 7d
+          value_type: TEXT
+          description: 'A meglevo IPDT adatbol szamolja ki az IP konfliktusokat (IPv4/IPv6).'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split(/\r?\n/);
+                  var ip_map = {};
+                  var conflicts = [];
+                  
+                  // MAC cim tisztitas
+                  function cleanMac(mac) {
+                      return mac.replace(/[\.\-:]/g, '').toLowerCase();
+                  }
+                  
+                  for (var i = 0; i < lines.length; i++) {
+                      var line = lines[i].trim();
+                      
+                      // 1. Explicit Statusz ellenorzese (DUPLICATE/COLLISION)
+                      if (line.match(/DUPLICATE|COLLISION/i)) {
+                          conflicts.push("Explicit Conflict State found: " + line);
+                      }
+                  
+                      // 2. IP es MAC kinyerese a sorbol
+                      var parts = line.split(/\s+/);
+                      var ip = '';
+                      var mac = '';
+                      
+                      for (var j = 0; j < parts.length; j++) {
+                          var p = parts[j];
+                          // IPv4 regex
+                          if (p.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) ip = p;
+                          // IPv6 regex
+                          else if (p.match(/^[0-9a-fA-F:]+:[0-9a-fA-F:]+$/) && p.length > 2) ip = p;
+                          // MAC regex
+                          else if (p.match(/^[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}$/)) mac = cleanMac(p);
+                      }
+                  
+                      if (ip && mac) {
+                          if (!ip_map[ip]) {
+                              ip_map[ip] = [];
+                          }
+                          if (ip_map[ip].indexOf(mac) === -1) {
+                              ip_map[ip].push(mac);
+                          }
+                      }
+                  }
+                  
+                  // 3. Konfliktusok keresese
+                  for (var ip in ip_map) {
+                      if (ip_map[ip].length > 1) {
+                          conflicts.push("IP Conflict: " + ip + " is used by multiple MACs: " + ip_map[ip].join(", "));
+                      }
+                  }
+                  
+                  if (conflicts.length > 0) {
+                      return JSON.stringify({ "count": conflicts.length, "details": conflicts.join(" | ") });
+                  } else {
+                      return JSON.stringify({ "count": 0, "details": "No conflicts" });
+                  }
+          master_item:
+            key: 'ssh.run[cisco.ipdt]'
+          tags:
+            - tag: Monitoring
+              value: 'Ip Conflict'
+          triggers:
+            - uuid: 7b2f6bbfbfad47fbb508364931f4c265
+              expression: 'jsonpath(last(/Cisco Catalyst 9500 Switch/cisco.ipdt.conflict.status), "$.count") > 0'
+              name: 'IP Conflict Detected (Device Tracking)'
+              opdata: '{$ITEM.VALUE}'
+              priority: HIGH
+              description: 'KRITIKUS: IP konfliktus erzekelve a halozatban! Reszletek: {ITEM.VALUE}'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Ip Conflict'
+        - uuid: 22bec9fcd0a549f5b4ed5673db16724f
+          name: 'Inventory: Building'
+          type: DEPENDENT
+          key: cisco.loc.building
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_ADDRESS_A
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'B:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: 0a8a98cff64b48a8982b83a46ba9298e
+          name: 'Inventory: City'
+          type: DEPENDENT
+          key: cisco.loc.city
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_CITY
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'C:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: a1ce4e9fcf74471eaff2d07e1b9d3b1a
+          name: 'Inventory: Latitude'
+          type: DEPENDENT
+          key: cisco.loc.lat
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LAT
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LAT:([-+]?[0-9]*\.?[0-9]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: 0c2c445bfe8e48a1b6d0c020a48801c4
+          name: 'Inventory: Longitude'
+          type: DEPENDENT
+          key: cisco.loc.lon
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LON
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LONG:([-+]?[0-9]*\.?[0-9]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: 72ae964d21b440f3998fed3d3061fc82
+          name: 'Inventory: Room'
+          type: DEPENDENT
+          key: cisco.loc.room
+          history: 7d
+          value_type: CHAR
+          inventory_link: SITE_ADDRESS_B
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'R:([^ ]+)'
+                - \1
+          master_item:
+            key: system.location
+        - uuid: e19ef310e6914aec91ab6c5572ab1a9d
+          name: 'ARP Entries Count'
+          type: DEPENDENT
+          key: cisco.net.arp.count
+          history: 7d
+          value_type: FLOAT
+          description: 'Az ARP táblában lévő bejegyzések száma.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.length()
+          master_item:
+            key: cisco.net.arp.walk
+          tags:
+            - tag: Monitoring
+              value: ARP
+        - uuid: 0e0e20a498874de0955deb3950199855
+          name: 'Net: ARP Table Walk (IPv4)'
+          type: SNMP_AGENT
+          snmp_oid: 'walk[1.3.6.1.2.1.4.22.1.2]'
+          key: cisco.net.arp.walk
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          description: 'A teljes ARP tábla letöltése és JSON konverziója.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  // Nyers SNMP szoveg atalakitasa JSON listava
+                  var lines = value.split(/\r?\n/);
+                  var output = [];
+                  for (var i = 0; i < lines.length; i++) {
+                      if (lines[i].trim() !== "") {
+                          output.push(lines[i]);
+                      }
+                  }
+                  return JSON.stringify(output);
+        - uuid: 7ad303a2b4da46f5a3e81ed82765f17d
+          name: 'Stack: Number of Members'
+          type: SNMP_AGENT
+          snmp_oid: 'walk[1.3.6.1.4.1.9.9.500.1.2.1.1.1]'
+          key: cisco.stack.member.count
+          delay: 5m
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.trim().split(/\r?\n/);
+                  return (lines[0] === "" || lines[0].includes("No")) ? 0 : lines.length;
+          tags:
+            - tag: Monitoring
+              value: 'Stack Status'
+          triggers:
+            - uuid: 0db6641241b644b887cd2fc5ef3dfb80
+              expression: 'change(/Cisco Catalyst 9500 Switch/cisco.stack.member.count)<>0'
+              name: 'Stack: Number of members has changed'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+        - uuid: 6267e309dab84c41b525a66290600bdb
+          name: 'ICMP Ping'
+          type: SIMPLE
+          key: icmpping
+          delay: 5m
+          tags:
+            - tag: Monitoring
+              value: Ping
+          triggers:
+            - uuid: cdc4473481f242bfa559ebf02df187da
+              expression: 'max(/Cisco Catalyst 9500 Switch/icmpping,#3)=0'
+              name: 'Device Unavailable (Ping Failed)'
+              priority: DISASTER
+              tags:
+                - tag: Monitoring
+                  value: Ping
+        - uuid: 0757485df2f940e4b444302403dffa72
+          name: 'STP: Global topology changes'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.17.2.4.0
+          key: net.stp.top_changes
+          delay: 5m
+          tags:
+            - tag: Monitoring
+              value: STP
+        - uuid: ea94656763734ec58bf4bc78ab9c03e1
+          name: 'Service: Web (HTTP) status'
+          type: SIMPLE
+          key: 'net.tcp.service[http]'
+          delay: 5m
+          history: 7d
+          trends: '0'
+          valuemap:
+            name: 'Service state'
+          tags:
+            - tag: Monitoring
+              value: 'Remote Access'
+        - uuid: a823a3e8b5284ef5a4e9c4b65fd5805f
+          name: 'Service: SSH status'
+          type: SIMPLE
+          key: 'net.tcp.service[ssh]'
+          delay: 5m
+          history: 7d
+          trends: '0'
+          valuemap:
+            name: 'Service state'
+          tags:
+            - tag: Monitoring
+              value: 'Remote Access'
+        - uuid: dbbb4203463647c9bdd7f66c78afb8b9
+          name: 'Service: Telnet status'
+          type: SIMPLE
+          key: 'net.tcp.service[telnet]'
+          delay: 5m
+          history: 7d
+          trends: '0'
+          valuemap:
+            name: 'Service state'
+          tags:
+            - tag: Monitoring
+              value: 'Remote Access'
+        - uuid: 3724e6e86cfa4217847a6cc0db1f05c1
+          name: 'SSH: IPDT Data'
+          type: SSH
+          key: 'ssh.run[cisco.ipdt]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show device-tracking database | exclude FE80::'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+        - uuid: 27451681f96b4af9b0dcb799c84459a6
+          name: 'SSH: PoE Data'
+          type: SSH
+          key: 'ssh.run[cisco.poe]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show power inline'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'PoE adatgyujtes.'
+        - uuid: 36454051326d45bbbca879df7076ed6b
+          name: 'SSH: QoS Raw Data'
+          type: SSH
+          key: 'ssh.run[cisco.qos]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show policy-map interface | include Ethernet|Class-map:|drop rate|bytes output'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'Nyers QoS adatok letoltese. Ebbol dolgozik a Discovery (Output es Drop is).'
+        - uuid: d3280b670d6344708c7124f5a813d3a0
+          name: 'SSH: Stack Power Data'
+          type: SSH
+          key: 'ssh.run[cisco.stack]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show stack-power'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'Stack Power adatgyujtes.'
+        - uuid: 2eb810d6a2104c64995525e2db1aa83b
+          name: 'SSH: STP Data'
+          type: SSH
+          key: 'ssh.run[cisco.stp]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: 'show spanning-tree'
+          username: '{$SSH_USER}'
+          password: '{$SSH_PASSWORD}'
+          description: 'Spanning Tree adatgyujtes.'
+        - uuid: 2067f59ff42a456da44fbeb9ac70a3e3
+          name: 'Inventory: MAC Address'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.17.1.1.0
+          key: system.hw.macaddr.inventory
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: MACADDRESS_A
+        - uuid: b207ba794ecf4b1398c08c73b376c4a6
+          name: 'Inventory: Model (Type)'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.13.1000
+          key: system.hw.model.inventory
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: TYPE
+        - uuid: 61bc8d775411405e950e23c8df363908
+          name: 'Inventory: Serial Number'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.11.1000
+          key: system.hw.serialno.inventory
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: SERIALNO_A
+        - uuid: e41f2e7bdfc541ad965d24e1911b5339
+          name: 'System location'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.6.0
+          key: system.location
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION
+        - uuid: b08b18a4c8664578b34ec6c721a78abf
+          name: 'Inventory: Name'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.5.0
+          key: system.name.inventory
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: NAME
+        - uuid: 0f22bafebdec4096a43eebe656d8273a
+          name: 'Inventory: OS Version'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.47.1.1.1.1.10.1
+          key: system.sw.os.inventory
+          delay: 1d
+          history: 7d
+          value_type: CHAR
+          inventory_link: OS
+      discovery_rules:
+        - uuid: 183f11763707492e92ce4bc50ca877e7
+          name: 'Monitoring: ARP Table Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#ARP_MAC},1.3.6.1.2.1.4.22.1.2,{#ARP_IP},1.3.6.1.2.1.4.22.1.3]'
+          key: arp.table.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: 0c145a5621604c73b7c0631d3cde25c7
+              name: 'ARP Entry: IP {#ARP_IP}'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.4.22.1.2.{#SNMPINDEX}'
+              key: 'arp.mac[{#ARP_IP}]'
+              delay: 5m
+              value_type: TEXT
+              tags:
+                - tag: Monitoring
+                  value: ARP
+        - uuid: fe6d4b7931084223be2cf10dc6ec5f10
+          name: 'Hardware Discovery: Chassis'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#ENT_NAME},1.3.6.1.2.1.47.1.1.1.1.7]'
+          key: cisco.entity.chassis.discovery
+          delay: 1h
+          filter:
+            conditions:
+              - macro: '{#ENT_NAME}'
+                value: '^Switch [0-9]+$'
+          item_prototypes:
+            - uuid: 46d3d248473b47f4bb4cc0fddbe7050c
+              name: '{#ENT_NAME} PID'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'entPhysicalModelName.chassis[{#SNMPINDEX}]'
+              delay: 1d
+              history: 7d
+              value_type: CHAR
+              tags:
+                - tag: Hardware
+                  value: Chassis
+            - uuid: 0f62243d6c7041a7895e7d58a8a4740e
+              name: '{#ENT_NAME} SN'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.11.{#SNMPINDEX}'
+              key: 'entPhysicalSerialNum.chassis[{#SNMPINDEX}]'
+              delay: 1d
+              history: 7d
+              value_type: CHAR
+              tags:
+                - tag: Hardware
+                  value: Chassis
+        - uuid: ffcc58d1a35a4cbfa1bbb5070d9c0503
+          name: 'Hardware Discovery: Power Supply'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#PSU_NAME},1.3.6.1.4.1.9.9.13.1.5.1.2]'
+          key: cisco.entity.psu.discovery
+          delay: 1d
+          item_prototypes:
+            - uuid: 88c6d73b96114fe8899cc29222d6d61e
+              name: '{#PSU_NAME} PID'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'entPhysicalModelName.psu[{#SNMPINDEX}]'
+              delay: 1d
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'if (!value || value.trim() === '''' || value.includes(''No Such Instance'')) return ''NOT Installed''; return value.trim();'
+              tags:
+                - tag: Hardware
+                  value: 'Power Supply'
+            - uuid: c349dbe752db410880c1720028b83c34
+              name: '{#PSU_NAME} Serial'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.11.{#SNMPINDEX}'
+              key: 'entPhysicalSerialNum.psu[{#SNMPINDEX}]'
+              delay: 1d
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'if (!value || value.trim() === '''' || value.includes(''No Such Instance'')) return ''NOT Installed''; return value.trim();'
+              tags:
+                - tag: Hardware
+                  value: 'Power Supply'
+            - uuid: cf977798620f4d33a6c1525a778a6a51
+              name: '{#PSU_NAME} Wattage'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'psu.wattage.extracted[{#SNMPINDEX}]'
+              delay: 1d
+              units: W
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'var m = value.match(/(\d+)W/); return m ? m[1] : 0;'
+              tags:
+                - tag: Hardware
+                  value: 'Power Supply'
+        - uuid: 9567a4ed5444435aa2cfba5e78657ee1
+          name: 'Hardware Discovery: SFP'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#ENT_NAME},1.3.6.1.2.1.47.1.1.1.1.7,{#ENT_SN},1.3.6.1.2.1.47.1.1.1.1.11]'
+          key: cisco.entity.sfp.discovery
+          delay: 1h
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#ENT_NAME}'
+                value: '(Switch [0-9]+|Power Supply|Uplink Module|Stack)'
+                operator: NOT_MATCHES_REGEX
+              - macro: '{#ENT_SN}'
+                value: .+
+          item_prototypes:
+            - uuid: 79f6d2395c21458693fa53a0bb78caed
+              name: '{#ENT_NAME} PID'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'entPhysicalModelName.sfp[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: SFP
+            - uuid: 225bc2e88c6b46deb0973b042a6d158e
+              name: '{#ENT_NAME} Serial'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.11.{#SNMPINDEX}'
+              key: 'entPhysicalSerialNum.sfp[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: SFP
+        - uuid: c76d0450dd6b41519b8aa2278ca54e81
+          name: 'Hardware Discovery: Stack Cables'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#ENT_NAME},1.3.6.1.2.1.47.1.1.1.1.7]'
+          key: cisco.entity.stack.discovery
+          delay: 1h
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#ENT_NAME}'
+                value: StackPort|StackWise|Cable
+              - macro: '{#ENT_NAME}'
+                value: 'c93.. Stack'
+                operator: NOT_MATCHES_REGEX
+          item_prototypes:
+            - uuid: 23ddc4adba7347a5a04e7d206bb844c1
+              name: '{#ENT_NAME} PID'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'entPhysicalModelName.stack[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: StackCable
+            - uuid: 842b3698abc54c1db463ecce22ef395d
+              name: '{#ENT_NAME} Serial'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.11.{#SNMPINDEX}'
+              key: 'entPhysicalSerialNum.stack[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: StackCable
+        - uuid: f2ff6e8a6f964b0d94bc51f8a9eebc1f
+          name: 'Hardware Discovery: Uplink Modules'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#ENT_NAME},1.3.6.1.2.1.47.1.1.1.1.7]'
+          key: cisco.entity.uplink-modules.discovery
+          delay: 1h
+          filter:
+            conditions:
+              - macro: '{#ENT_NAME}'
+                value: '.*Uplink Module.*'
+          item_prototypes:
+            - uuid: 7b235d26d34b44ca925a559ec6b75ce5
+              name: '{#ENT_NAME} PID'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.13.{#SNMPINDEX}'
+              key: 'entPhysicalModelName.comp[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: 'Uplink Modules'
+            - uuid: 9ff31983bf134994bd3f147713df7e10
+              name: '{#ENT_NAME} Serial'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.47.1.1.1.1.11.{#SNMPINDEX}'
+              key: 'entPhysicalSerialNum.comp[{#SNMPINDEX}]'
+              delay: 1h
+              value_type: TEXT
+              tags:
+                - tag: Hardware
+                  value: 'Uplink Modules'
+        - uuid: 19e17fbabe8d40d7a733ea6d39278cb4
+          name: 'Monitoring: Fan Status'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#FAN_NAME},1.3.6.1.4.1.9.9.13.1.4.1.2]'
+          key: cisco.envmon.fan.status.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: 5372786c51794962af82dd8dc5b3073a
+              name: '{#FAN_NAME} Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.13.1.4.1.3.{#SNMPINDEX}'
+              key: 'ciscoEnvMonFanState[{#SNMPINDEX}]'
+              delay: 5m
+              valuemap:
+                name: 'Cisco EnvMon State'
+              tags:
+                - tag: Monitoring
+                  value: Fan
+              trigger_prototypes:
+                - uuid: 3d7bb2e5ffe74cdb968f3771ffb1ebad
+                  expression: 'last(/Cisco Catalyst 9500 Switch/ciscoEnvMonFanState[{#SNMPINDEX}])<>1 and last(/Cisco Catalyst 9500 Switch/ciscoEnvMonFanState[{#SNMPINDEX}])<>5'
+                  name: 'Fan Error: {#FAN_NAME} is NOT OK'
+                  priority: AVERAGE
+        - uuid: 8b295c02e1144752b1fd13227baeb41a
+          name: 'Monitoring: Power Supply Status'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#PSU_NAME},1.3.6.1.4.1.9.9.13.1.5.1.2]'
+          key: cisco.envmon.psu.status.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: 84a590a4e9344ce08be995246b51f6de
+              name: '{#PSU_NAME} Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.13.1.5.1.3.{#SNMPINDEX}'
+              key: 'ciscoEnvMonSupplyState[{#SNMPINDEX}]'
+              delay: 5m
+              valuemap:
+                name: 'Cisco EnvMon State'
+              tags:
+                - tag: Monitoring
+                  value: 'Power Supply'
+              trigger_prototypes:
+                - uuid: 1f215977d3834f7e966032b3add963ad
+                  expression: 'last(/Cisco Catalyst 9500 Switch/ciscoEnvMonSupplyState[{#SNMPINDEX}])<>1 and last(/Cisco Catalyst 9500 Switch/ciscoEnvMonSupplyState[{#SNMPINDEX}])<>5'
+                  name: 'PSU Error: {#PSU_NAME} is NOT OK'
+                  priority: DISASTER
+        - uuid: 67e4bb8d004a408098fe8bfb7639d96b
+          name: 'Monitoring: Storage Discovery (File System MIB)'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#FSNAME},1.3.6.1.4.1.9.9.229.1.1.1.1]'
+          key: cisco.fs.discovery
+          delay: 5m
+          filter:
+            conditions:
+              - macro: '{#FSNAME}'
+                value: '^(flash:|bootflash:|usb[0-9]*:|harddisk:)'
+          description: 'Fájlrendszerek felderítése a CISCO-FILE-SYSTEM-MIB segítségével.'
+          item_prototypes:
+            - uuid: b25d74c136944b0089cc457a6c8f50f5
+              name: 'Storage [{#FSNAME}]: Free Space'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.229.1.1.1.14.{#SNMPINDEX}'
+              key: 'cisco.fs.free[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Szabad hely bájtban (ciscoFileSystemFreeSpace).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: fa8351d705bf40169e3ae09a1b4d2a7b
+              name: 'Storage [{#FSNAME}]: Total Size'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.229.1.1.1.13.{#SNMPINDEX}'
+              key: 'cisco.fs.total[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Teljes méret bájtban (ciscoFileSystemSize).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: 0a8f7830c72948f586d7a8de60c4d4e7
+              name: 'Storage [{#FSNAME}]: Used Space'
+              type: CALCULATED
+              key: 'cisco.fs.used[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              params: 'last(//cisco.fs.total[{#SNMPINDEX}]) - last(//cisco.fs.free[{#SNMPINDEX}])'
+              description: 'Használt terület bájtban (Számított).'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+            - uuid: 71350ecf0b40453291c3e53510e05067
+              name: 'Storage [{#FSNAME}]: Utilization'
+              type: CALCULATED
+              key: 'cisco.fs.util[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: '%'
+              params: '(last(//cisco.fs.total[{#SNMPINDEX}]) - last(//cisco.fs.free[{#SNMPINDEX}])) / last(//cisco.fs.total[{#SNMPINDEX}]) * 100'
+              description: 'Tároló kihasználtsága százalékban.'
+              tags:
+                - tag: Monitoring
+                  value: Storage
+              trigger_prototypes:
+                - uuid: e8df0f4f1c2348ffaaba2e3497eca1f3
+                  expression: 'min(/Cisco Catalyst 9500 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 95'
+                  name: 'Storage [{#FSNAME}]: Critical usage (>95%)'
+                  priority: HIGH
+                  description: 'A tároló telítettsége kritikusan magas ({ITEM.LASTVALUE}). Törölj régi image fájlokat.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: Storage
+                - uuid: 8d1b8d23104d417089d931c90d1d766f
+                  expression: 'min(/Cisco Catalyst 9500 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 85'
+                  name: 'Storage [{#FSNAME}]: High usage (>85%)'
+                  priority: WARNING
+                  description: 'A tároló telítettsége magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Storage [{#FSNAME}]: Critical usage (>95%)'
+                      expression: 'min(/Cisco Catalyst 9500 Switch/cisco.fs.util[{#SNMPINDEX}],5m) > 95'
+                  tags:
+                    - tag: Monitoring
+                      value: Storage
+        - uuid: dec5e8d2f7654b248711036abac594db
+          name: 'Monitoring: IPDT'
+          type: DEPENDENT
+          key: cisco.ipdt.discovery
+          item_prototypes:
+            - uuid: a2960a1b8def4923a66b812923139379
+              name: 'Interface {#IFNAME}: Neighbor IP(s)'
+              type: DEPENDENT
+              key: 'cisco.ipdt.ip[{#IFNAME}]'
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      var targetIf = '{#IFNAME}';
+                      var ips = [];
+                      function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                      for (var i = 0; i < lines.length; i++) {
+                          var l = lines[i].trim();
+                          var m = l.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+                          if (m) {
+                              var currentIf = clean(m[4]);
+                              if (currentIf === targetIf) {
+                                  ips.push(m[2]);
+                              }
+                          }
+                      }
+                      return ips.length > 0 ? ips.join(', ') : 'No IP';
+              master_item:
+                key: 'ssh.run[cisco.ipdt]'
+              tags:
+                - tag: Monitoring
+                  value: 'Device Tracking'
+          master_item:
+            key: 'ssh.run[cisco.ipdt]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split('\n');
+                  var output = [];
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var l = lines[i].trim();
+                      var m = l.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/);
+                      if (m && m[4].match(/^(Gi|Te|Fa)/)) {
+                          output.push({ '{#IFNAME}': clean(m[4]) });
+                      }
+                  }
+                  var uniqueOutput = [];
+                  var seen = {};
+                  for(var i = 0; i < output.length; i++) {
+                      var name = output[i]['{#IFNAME}'];
+                      if(!seen[name]) {
+                          seen[name] = true;
+                          uniqueOutput.push(output[i]);
+                      }
+                  }
+                  return JSON.stringify(uniqueOutput);
+        - uuid: 85db2dbd54a94eee8704c97350f0a794
+          name: 'Monitoring: IP SLA Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IPSLA_TAG},1.3.6.1.4.1.9.9.42.1.2.1.1.3]'
+          key: cisco.ipsla.discovery
+          delay: 5m
+          description: 'Felderíti az IP SLA méréseket a ''rttMonCtrlAdminTag'' alapján.'
+          item_prototypes:
+            - uuid: 33c61dca8e194ce8a5aa7e506d82e55d
+              name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: RTT'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.42.1.2.10.1.1.{#SNMPINDEX}'
+              key: 'cisco.ipsla.rtt[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: ms
+              description: 'Az IP SLA mérés válaszideje (Completion Time). Index: {#SNMPINDEX}'
+              tags:
+                - tag: Monitoring
+                  value: 'Ip SLA'
+            - uuid: 04ade42b1eee401c9db3c12ac216bf46
+              name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.42.1.2.10.1.2.{#SNMPINDEX}'
+              key: 'cisco.ipsla.status[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              description: 'Az IP SLA mérés státusza (Sense). Index: {#SNMPINDEX}'
+              valuemap:
+                name: 'Cisco IP SLA Status (Loose)'
+              tags:
+                - tag: Monitoring
+                  value: 'Ip SLA'
+              trigger_prototypes:
+                - uuid: 8c5abe0d60cf4250b4af97500da753cd
+                  expression: 'last(/Cisco Catalyst 9500 Switch/cisco.ipsla.status[{#SNMPINDEX}])>2'
+                  name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]: Check failed'
+                  priority: WARNING
+                  description: |
+                    Az IP SLA mérés hibát jelez (Timeout, Threshold error, stb).
+                    Aktuális státusz kód: {ITEM.LASTVALUE}
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Ip SLA'
+          graph_prototypes:
+            - uuid: 5ad0581a826f46068393941640303ff4
+              name: 'IP SLA [{#SNMPINDEX} - {#IPSLA_TAG}]'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'cisco.ipsla.rtt[{#SNMPINDEX}]'
+        - uuid: 99a5ed62ad6a4babaed300cd0993f220
+          name: 'Hardware Discovery: Location based tagging'
+          type: SNMP_AGENT
+          snmp_oid: 1.3.6.1.2.1.1.6.0
+          key: cisco.location.discovery
+          delay: 1d
+          host_prototypes:
+            - uuid: 694bc5dfae204a1098317be9d1f4ab70
+              host: '{#CITY}_{#BUILDING}_{#SNMPINDEX}'
+              name: '{#CITY} {#BUILDING} ({#SNMPINDEX})'
+              group_links:
+                - group:
+                    name: All
+              group_prototypes:
+                - name: 'Location/{#CITY}'
+                - name: 'Location/{#CITY} {#BUILDING}'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var loc = value;
+                  var city = loc.match(/C:([^ ]+)/) ? loc.match(/C:([^ ]+)/)[1] : 'Unknown';
+                  var bld = loc.match(/B:([^ ]+)/) ? loc.match(/B:([^ ]+)/)[1] : '';
+                  return JSON.stringify([{
+                    '{#CITY}': city,
+                    '{#BUILDING}': bld,
+                    '{#LOC_GROUP}': city + (bld ? ' ' + bld : '')
+                  }]);
+        - uuid: 333edae210cf4b0f8f649ab9283d84bb
+          name: 'Monitoring: Memory Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#MEMNAME},1.3.6.1.4.1.9.9.48.1.1.1.2]'
+          key: cisco.memory.discovery
+          delay: 5m
+          description: 'Cisco Memory Pool-ok felderítése (pl. Processor, I/O).'
+          item_prototypes:
+            - uuid: 50b8a874c9a0458c9da12b7b0a9c0ba5
+              name: 'Memory [{#MEMNAME}]: Free'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.48.1.1.1.6.{#SNMPINDEX}'
+              key: 'cisco.memory.free[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Szabad memória mérete bájtban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+            - uuid: 970d1294cbd24c678a015fc2b009c7cb
+              name: 'Memory [{#MEMNAME}]: Used'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.48.1.1.1.5.{#SNMPINDEX}'
+              key: 'cisco.memory.used[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Használt memória mérete bájtban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+            - uuid: 9ffbb16c41324f94a12966e4810cf513
+              name: 'Memory [{#MEMNAME}]: Utilization'
+              type: CALCULATED
+              key: 'cisco.memory.util[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: '%'
+              params: 'last(//cisco.memory.used[{#SNMPINDEX}]) / (last(//cisco.memory.used[{#SNMPINDEX}]) + last(//cisco.memory.free[{#SNMPINDEX}])) * 100'
+              description: 'Számított memóriahasználat százalékban.'
+              tags:
+                - tag: Monitoring
+                  value: 'Memory Usage'
+              trigger_prototypes:
+                - uuid: 2f669db7cee84df5b45d32470a2dcdb4
+                  expression: 'min(/Cisco Catalyst 9500 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 95'
+                  name: 'Memory [{#MEMNAME}]: Critical usage (>95%)'
+                  priority: HIGH
+                  description: 'A memóriahasználat kritikusan magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Memory Usage'
+                - uuid: 13e1c273cde841c4b227a0abd9fe9f12
+                  expression: 'min(/Cisco Catalyst 9500 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 85'
+                  name: 'Memory [{#MEMNAME}]: High usage (>85%)'
+                  priority: WARNING
+                  description: 'A memóriahasználat magas ({ITEM.LASTVALUE}).'
+                  manual_close: 'YES'
+                  dependencies:
+                    - name: 'Memory [{#MEMNAME}]: Critical usage (>95%)'
+                      expression: 'min(/Cisco Catalyst 9500 Switch/cisco.memory.util[{#SNMPINDEX}],5m) > 95'
+                  tags:
+                    - tag: Monitoring
+                      value: 'Memory Usage'
+          graph_prototypes:
+            - uuid: 6db2798c29ad4823bb3316bd58cf984b
+              name: 'Memory Usage'
+              show_work_period: 'NO'
+              show_triggers: 'NO'
+              type: PIE
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'cisco.memory.free[{#SNMPINDEX}]'
+                - sortorder: '1'
+                  color: FF0000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'cisco.memory.used[{#SNMPINDEX}]'
+        - uuid: 2b058fed82c24a4c8c1aa5eb97a5c860
+          name: 'PoE Interface Discovery'
+          type: DEPENDENT
+          key: cisco.poe.discovery
+          item_prototypes:
+            - uuid: 1ac425f664f74c1f87a61f6b094dd4a7
+              name: 'Interface {#IFNAME}: PoE Power Consumed'
+              type: DEPENDENT
+              key: 'cisco.poe.watts[{#IFNAME}]'
+              value_type: FLOAT
+              units: W
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      for (var i = 0; i < lines.length; i++) {
+                          if (lines[i].indexOf('{#IFNAME}') !== -1) {
+                              var m = lines[i].match(/(\d+\.\d+)/);
+                              return m ? m[1] : 0;
+                          }
+                      }
+                      return 0;
+              master_item:
+                key: 'ssh.run[cisco.poe]'
+              tags:
+                - tag: Monitoring
+                  value: PoE
+          master_item:
+            key: 'ssh.run[cisco.poe]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split('\n');
+                  var result = [];
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var m = lines[i].match(/^(Gi|Te|Fa)[0-9\/]+\s+(on|off|auto)/);
+                      if (m) { result.push({ '{#IFNAME}': clean(m[0].split(' ')[0]) }); }
+                  }
+                  return JSON.stringify(result);
+        - uuid: c01dcdc308a447dd9443686022e6d39c
+          name: 'QoS Class Discovery'
+          type: DEPENDENT
+          key: cisco.qos.discovery
+          lifetime: 30d
+          description: 'Interfeszek es Class-map-ek felderitese.'
+          item_prototypes:
+            - uuid: 1f8ef17650784e42a9a1b20d18a04ffb
+              name: 'Interface {#IFNAME}: QoS {#CLASSNAME} Bytes Output'
+              type: DEPENDENT
+              key: 'cisco.qos.class.bytes[{#IFNAME},{#CLASSNAME}]'
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              units: B
+              description: 'Kimenovo forgalom (Delta).'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split(/\r?\n/);
+                      var target_if = '{#IFNAME}';
+                      var target_class = '{#CLASSNAME}';
+                      var in_target_if = false;
+                      var found_val = '0';
+                      
+                      for (var i = 0; i < lines.length; i++) {
+                          var line = lines[i].trim();
+                          
+                          // Interface blokk keresese (biztonsagosabb string match)
+                          if (line.indexOf(target_if) !== -1 && !line.includes("Class-map")) {
+                              in_target_if = true;
+                          } else if (line.match(/(Gi|Te|Fa|Tw)[a-zA-Z]*[0-9\/]+/) && line.indexOf(target_if) === -1 && !line.includes("Class-map")) {
+                              // Ha masik interface jon, kilepunk
+                              in_target_if = false;
+                          }
+                      
+                          if (in_target_if) {
+                              // Class keresese
+                              if (line.includes('Class-map:') && line.includes(target_class)) {
+                                  // Innentol keressuk a bytes outputot a kovetkezo interface-ig
+                                  for (var j = i + 1; j < lines.length; j++) {
+                                      if (lines[j].match(/Ethernet/) && !lines[j].includes("bytes output")) break;
+                                      if (lines[j].match(/Class-map:/)) break;
+                                      
+                                      var m = lines[j].match(/\(bytes output\)\s+(\d+)/);
+                                      if (m) {
+                                          return m[1]; // Csak a szamot adjuk vissza!
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                      return found_val;
+                - type: SIMPLE_CHANGE
+              master_item:
+                key: 'ssh.run[cisco.qos]'
+              tags:
+                - tag: Monitoring
+                  value: QoS
+            - uuid: a750f2a56bed4d9bb28a616c36f86671
+              name: 'Interface {#IFNAME}: QoS {#CLASSNAME} Drops'
+              type: DEPENDENT
+              key: 'cisco.qos.class.drops[{#IFNAME},{#CLASSNAME}]'
+              history: 7d
+              value_type: FLOAT
+              trends: 90d
+              description: 'Dobott csomagok (Delta).'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split(/\r?\n/);
+                      var target_if = '{#IFNAME}';
+                      var target_class = '{#CLASSNAME}';
+                      var in_target_if = false;
+                      
+                      for (var i = 0; i < lines.length; i++) {
+                          var line = lines[i].trim();
+                          
+                          if (line.indexOf(target_if) !== -1 && !line.includes("Class-map")) {
+                              in_target_if = true;
+                          } else if (line.match(/(Gi|Te|Fa|Tw)[a-zA-Z]*[0-9\/]+/) && line.indexOf(target_if) === -1 && !line.includes("Class-map")) {
+                              in_target_if = false;
+                          }
+                      
+                          if (in_target_if) {
+                              if (line.includes('Class-map:') && line.includes(target_class)) {
+                                  for (var j = i + 1; j < lines.length; j++) {
+                                      if (lines[j].match(/Ethernet/) && !lines[j].includes("bytes output")) break;
+                                      if (lines[j].match(/Class-map:/)) break;
+                                      
+                                      var m = lines[j].match(/drop rate\s+(\d+)/);
+                                      if (m) {
+                                          return m[1];
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                      return '0';
+                - type: SIMPLE_CHANGE
+              master_item:
+                key: 'ssh.run[cisco.qos]'
+              tags:
+                - tag: Monitoring
+                  value: QoS
+          master_item:
+            key: 'ssh.run[cisco.qos]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split(/\r?\n/);
+                  var output = [];
+                  var current_if = '';
+                  
+                  for (var i = 0; i < lines.length; i++) {
+                      var line = lines[i].trim();
+                      // Interface keresese. Cisco kimenetben: " GigabitEthernet1/0/1 "
+                      // A regex: sor elejen vagy kozepen talalhato interface nev
+                      var if_match = line.match(/(Gi|Te|Fa|Tw)[a-zA-Z]*[0-9\/]+/);
+                      if (if_match && !line.includes("Class-map")) {
+                         // Ha ez egy interface sor (es nem class map hivatkozas)
+                         current_if = if_match[0];
+                      }
+                      
+                      // Class-map keresese
+                      var match_class = line.match(/Class-map:\s+([^\s]+)/);
+                      if (match_class && current_if !== '') {
+                          output.push({
+                              "{#IFNAME}": current_if,
+                              "{#CLASSNAME}": match_class[1]
+                          });
+                      }
+                  }
+                  return JSON.stringify(output);
+        - uuid: 0dc46b9a5bfb47769e7a4419a421979b
+          name: 'Monitoring: Transceiver (SFP) Sensors'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SENSOR_NAME},1.3.6.1.2.1.47.1.1.1.1.7,{#SENSOR_TYPE},1.3.6.1.4.1.9.9.91.1.1.1.1.1]'
+          key: cisco.sfp.discovery
+          delay: 5m
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#SENSOR_NAME}'
+                value: 'Receive Power|Transmit Power|Temperature|Voltage|Current'
+          item_prototypes:
+            - uuid: fc8d46ebe61d4007b4fdef6fc4f02ff7
+              name: 'SFP: {#SENSOR_NAME}'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.91.1.1.1.1.4.{#SNMPINDEX}'
+              key: 'sensor.value[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: MULTIPLIER
+                  parameters:
+                    - '0.1'
+              tags:
+                - tag: Monitoring
+                  value: Transceiver
+              trigger_prototypes:
+                - uuid: 1ad8c1d40ef1481585822c4062d1ffab
+                  expression: 'last(/Cisco Catalyst 9500 Switch/sensor.value[{#SNMPINDEX}]) < -18'
+                  name: 'SFP: {#SENSOR_NAME} - Critical Signal (< -18 dBm)'
+                  status: DISABLED
+                  priority: HIGH
+                  description: 'Optical receive power is critically low. Link failure imminent.'
+                  manual_close: 'YES'
+                - uuid: 45cb0e99345c4092aee285ba52e95e9e
+                  expression: 'last(/Cisco Catalyst 9500 Switch/sensor.value[{#SNMPINDEX}]) < -14'
+                  name: 'SFP: {#SENSOR_NAME} - Low Signal (< -14 dBm)'
+                  status: DISABLED
+                  priority: WARNING
+                  description: 'Optical receive power is low. Potential fiber issue or dirty connector.'
+                  manual_close: 'YES'
+          graph_prototypes:
+            - uuid: 13862d8cece14224a5fe020f742d433f
+              name: 'SFP: {#SENSOR_NAME}'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'sensor.value[{#SNMPINDEX}]'
+          overrides:
+            - name: 'Enable Rx Power Triggers'
+              step: '1'
+              filter:
+                evaltype: AND
+                conditions:
+                  - macro: '{#SENSOR_NAME}'
+                    value: 'Receive Power'
+              operations:
+                - operationobject: TRIGGER_PROTOTYPE
+                  operator: LIKE
+                  value: Signal
+                  discover: DISCOVER
+                  status: ENABLED
+        - uuid: 756e6a183db047ce9d23f76b386542cd
+          name: 'Monitoring: Stack members discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SNMPVALUE},1.3.6.1.4.1.9.9.500.1.2.1.1.1]'
+          key: cisco.stack.member.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: 06d1786540204da08f899044a82f7559
+              name: 'Switch {#SWITCH_NUM}: Role'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.500.1.2.1.1.3.{#SNMPINDEX}'
+              key: 'cisco.stack.switch.role[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              valuemap:
+                name: 'Cisco Stack Role'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+            - uuid: f53163926f164c3cbaa08893a4ab3b7d
+              name: 'Switch {#SWITCH_NUM}: State'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.500.1.2.1.1.6.{#SNMPINDEX}'
+              key: 'cisco.stack.switch.state[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              valuemap:
+                name: 'Cisco Stack State'
+              tags:
+                - tag: Monitoring
+                  value: 'Stack Status'
+              trigger_prototypes:
+                - uuid: c4ba4ffaf0a64c90a0308e41dffb47d6
+                  expression: 'last(/Cisco Catalyst 9500 Switch/cisco.stack.switch.state[{#SNMPINDEX}])<>4 and last(/Cisco Catalyst 9500 Switch/cisco.stack.switch.state[{#SNMPINDEX}])<>5'
+                  name: 'Switch {#SWITCH_NUM} state is not Ready/Master'
+                  priority: HIGH
+                  tags:
+                    - tag: Monitoring
+                      value: 'Stack Status'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  for (var i = 0; i < data.length; i++) {
+                      data[i]['{#SWITCH_NUM}'] = parseInt(data[i]['{#SNMPINDEX}']) / 1000;
+                  }
+                  return JSON.stringify(data);
+        - uuid: 4a8bd1e822fe4aa0aae2792e5deef959
+          name: 'STP Interface Discovery'
+          type: DEPENDENT
+          key: cisco.stp.discovery
+          item_prototypes:
+            - uuid: 49819711f3f1490c8279ec95f4b4199c
+              name: 'Interface {#IFNAME}: STP State'
+              type: DEPENDENT
+              key: 'cisco.stp.state[{#IFNAME}]'
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var lines = value.split('\n');
+                      for (var i = 0; i < lines.length; i++) {
+                          if (lines[i].indexOf('{#IFNAME}') !== -1 || lines[i].indexOf('{#IFNAME}'.replace('Gi', 'GigabitEthernet')) !== -1) {
+                              var m = lines[i].trim().match(/^(\S+)\s+\S+\s+(\w+)\s+\d+/);
+                              if (m) return m[2];
+                          }
+                      }
+                      return 'N/A';
+              master_item:
+                key: 'ssh.run[cisco.stp]'
+              tags:
+                - tag: Monitoring
+                  value: STP
+              trigger_prototypes:
+                - uuid: 9d30891c61f34c1abd9816db1801087e
+                  expression: 'last(/Cisco Catalyst 9500 Switch/cisco.stp.state[{#IFNAME}])="BLK"'
+                  name: 'Interface {#IFNAME}: STP is in BLOCKING state'
+                  priority: WARNING
+          master_item:
+            key: 'ssh.run[cisco.stp]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var lines = value.split('\n');
+                  var result = [];
+                  function clean(n) { return n.replace('GigabitEthernet', 'Gi').replace('TenGigabitEthernet', 'Te').replace('FastEthernet', 'Fa').replace('Port-channel', 'Po').trim(); }
+                  for (var i = 0; i < lines.length; i++) {
+                      var m = lines[i].trim().match(/^(\w{2}[0-9\/]+)\s+\S+\s+(\w+)\s+\d+/);
+                      if (m) { result.push({ '{#IFNAME}': clean(m[1]) }); }
+                  }
+                  return JSON.stringify(result);
+        - uuid: d15d42f63cef4c76a655f3d77cce4a46
+          name: 'Monitoring: Temperature Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SENSOR_NAME},1.3.6.1.2.1.47.1.1.1.1.7,{#SENSOR_TYPE},1.3.6.1.4.1.9.9.91.1.1.1.1.1,{#SENSOR_PRECISION},1.3.6.1.4.1.9.9.91.1.1.1.1.3]'
+          key: cisco.temp.discovery
+          delay: 5m
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#SENSOR_TYPE}'
+                value: '8'
+          item_prototypes:
+            - uuid: 87f55fdc3aaa4c79baf5c05c697daeb0
+              name: 'Sensor {#SENSOR_NAME}: Temperature'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.91.1.1.1.1.4.{#SNMPINDEX}'
+              key: 'cisco.temp.value[{#SNMPINDEX}]'
+              delay: 5m
+              value_type: FLOAT
+              units: °C
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'return value * Math.pow(10, -{#SENSOR_PRECISION});'
+              tags:
+                - tag: Monitoring
+                  value: Temperature
+          graph_prototypes:
+            - uuid: e11ec63a5a3a4352801cbc1aa3f0394c
+              name: '{#SENSOR_NAME}: Temperature'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'cisco.temp.value[{#SNMPINDEX}]'
+        - uuid: 295ec711e58f4854b3879062cdbcb2d0
+          name: 'Monitoring: Network Interface Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
+          key: net.if.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: dc1681802f844031999a77cdd1040f0d
+              name: 'Interface {#IFNAME}: Broadcast packets received'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.9.{#SNMPINDEX}'
+              key: 'net.if.in.broadcast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: 323b3a11267346e18fb225620c6bdc19
+              name: 'Interface {#IFNAME}: Multicast packets received'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.8.{#SNMPINDEX}'
+              key: 'net.if.in.multicast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: 705af55fe22a447fa4519dfc65beadc9
+              name: 'Interface {#IFNAME}: Unicast packets received'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.7.{#SNMPINDEX}'
+              key: 'net.if.in.ucast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: e05f0ab6083e4f29a73b6942c8e917eb
+              name: 'Interface {#IFNAME}: Bits received'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.6.{#SNMPINDEX}'
+              key: 'net.if.in[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-8'
+                - type: IN_RANGE
+                  parameters:
+                    - '-200000000000'
+                    - '0'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic'
+            - uuid: 1239d6491fee4ffebd015c805d137d48
+              name: 'Interface {#IFNAME}: Mode'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.9.9.46.1.6.1.1.16.{#SNMPINDEX}'
+              key: 'net.if.mode[{#IFNAME}]'
+              delay: 1h
+              history: 7d
+              trends: '0'
+              description: '1=Trunking, 2=Access, 3=Auto, 6=Desirable'
+              valuemap:
+                name: 'Cisco Interface Mode'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Mode'
+            - uuid: 890a2decd8514fff9f0a5107e4b8c603
+              name: 'Interface {#IFNAME}: Broadcast packets sent'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.13.{#SNMPINDEX}'
+              key: 'net.if.out.broadcast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: 393359a33e3346ca83e0f09fc5b77302
+              name: 'Interface {#IFNAME}: Multicast packets sent'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.12.{#SNMPINDEX}'
+              key: 'net.if.out.multicast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: e3c7c9c1a69d4d0a837212d990292356
+              name: 'Interface {#IFNAME}: Unicast packets sent'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.11.{#SNMPINDEX}'
+              key: 'net.if.out.ucast[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              units: pps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic Types'
+            - uuid: 1e0bbd2e84c24ffc952529baa2ce5a41
+              name: 'Interface {#IFNAME}: Bits sent'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.10.{#SNMPINDEX}'
+              key: 'net.if.out[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              units: bps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '200000000000'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Traffic'
+            - uuid: c33c6350f0014670a607731fde109d0e
+              name: 'Interface {#IFNAME}: Speed'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.15.{#SNMPINDEX}'
+              key: 'net.if.speed[{#IFNAME}]'
+              delay: 1d
+              history: 7d
+              trends: '0'
+              units: bps
+              description: 'Interface speed in bits per second (converted from Mbps).'
+              preprocessing:
+                - type: MULTIPLIER
+                  parameters:
+                    - '1000000'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Speed'
+            - uuid: 07e20caa805b44408bfd65f582f3ec02
+              name: 'Interface {#IFNAME}: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.8.{#SNMPINDEX}'
+              key: 'net.if.status[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              valuemap:
+                name: 'Cisco Interface Status'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Status'
+          trigger_prototypes:
+            - uuid: 7315fb0166534135a2eee9710f4d8283
+              expression: 'last(/Cisco Catalyst 9500 Switch/net.if.mode[{#IFNAME}])=2 and (last(/Cisco Catalyst 9500 Switch/net.if.status[{#IFNAME}])<>last(/Cisco Catalyst 9500 Switch/net.if.status[{#IFNAME}],#2))'
+              name: 'Interface {#IFNAME}: Access Link status changed'
+              priority: INFO
+              description: 'Information: An Access port changed state (Up<->Down).'
+              manual_close: 'YES'
+            - uuid: 0a91a6badb1e49c097ae1faeb2c6289b
+              expression: '(last(/Cisco Catalyst 9500 Switch/net.if.in[{#IFNAME}]) / last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}])) * 100 > 95 and last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface {#IFNAME}: Critical bandwidth usage >95% (RX)'
+              priority: HIGH
+              description: 'Interface utilization is over 95% on receive side.'
+              manual_close: 'YES'
+            - uuid: 4c914ebfb97542b393a981b4c833da7d
+              expression: '(last(/Cisco Catalyst 9500 Switch/net.if.out[{#IFNAME}]) / last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}])) * 100 > 95 and last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface {#IFNAME}: Critical bandwidth usage >95% (TX)'
+              priority: HIGH
+              description: 'Interface utilization is over 95% on transmit side.'
+              manual_close: 'YES'
+            - uuid: 60c22a187d224660a9b39e2edea975eb
+              expression: '(last(/Cisco Catalyst 9500 Switch/net.if.in[{#IFNAME}]) / last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}])) * 100 > 85 and last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface {#IFNAME}: High bandwidth usage >85% (RX)'
+              priority: WARNING
+              description: 'Interface utilization is over 85% on receive side.'
+              manual_close: 'YES'
+            - uuid: 2d5d5d6399084ceeb5b165888d34fd2e
+              expression: '(last(/Cisco Catalyst 9500 Switch/net.if.out[{#IFNAME}]) / last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}])) * 100 > 85 and last(/Cisco Catalyst 9500 Switch/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface {#IFNAME}: High bandwidth usage >85% (TX)'
+              priority: WARNING
+              description: 'Interface utilization is over 85% on transmit side.'
+              manual_close: 'YES'
+            - uuid: 9c8f0d0aa0bf4debb4ac5695c403b0f8
+              expression: 'last(/Cisco Catalyst 9500 Switch/net.if.mode[{#IFNAME}])=1 and last(/Cisco Catalyst 9500 Switch/net.if.status[{#IFNAME}])=2'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/Cisco Catalyst 9500 Switch/net.if.status[{#IFNAME}])=1'
+              name: 'Interface {#IFNAME}: Trunk Link DOWN'
+              priority: HIGH
+              description: 'Critical alert: A Trunk interface is DOWN.'
+              manual_close: 'YES'
+          graph_prototypes:
+            - uuid: 33c78f84d76d4eb09de45a103589ef8a
+              name: 'Interface {#IFNAME} Inbound Traffic Types'
+              width: '500'
+              show_work_period: 'NO'
+              show_triggers: 'NO'
+              type: PIE
+              show_3d: 'YES'
+              graph_items:
+                - color: FF0000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.broadcast[{#IFNAME}]'
+                - sortorder: '1'
+                  color: FFFF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.multicast[{#IFNAME}]'
+                - sortorder: '2'
+                  color: 80FF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.ucast[{#IFNAME}]'
+            - uuid: 22396ac41ec249d6bd08c1f5c81560ce
+              name: 'Interface {#IFNAME} Outbound Traffic Types'
+              width: '500'
+              show_work_period: 'NO'
+              show_triggers: 'NO'
+              type: PIE
+              show_3d: 'YES'
+              graph_items:
+                - color: FF0000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.out.broadcast[{#IFNAME}]'
+                - sortorder: '1'
+                  color: FFFF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.out.multicast[{#IFNAME}]'
+                - sortorder: '2'
+                  color: 80FF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.out.ucast[{#IFNAME}]'
+            - uuid: ea6748dfadd64328b2f0288bf5a9b9d7
+              name: 'Interface {#IFNAME} Traffic'
+              show_triggers: 'NO'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in[{#IFNAME}]'
+                - sortorder: '1'
+                  drawtype: FILLED_REGION
+                  color: FFBF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.out[{#IFNAME}]'
+        - uuid: bc9a40e954394a059acc7271160c1fa7
+          name: 'Monitoring: Neighbors Discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
+          key: net.if.discovery.neighbors.detailed
+          delay: 5m
+          item_prototypes:
+            - uuid: 5cb85a28cbd1490480a862b5db7de457
+              name: 'Interface {#IFNAME}: Neighbor'
+              type: SNMP_AGENT
+              snmp_oid: 'walk[1.3.6.1.4.1.9.9.23.1.2.1.1.6, 1.3.6.1.4.1.9.9.23.1.2.1.1.8, 1.3.6.1.4.1.9.9.23.1.2.1.1.9, 1.0.8802.1.1.2.1.4.1.1.9, 1.0.8802.1.1.2.1.4.1.1.10, 1.0.8802.1.1.2.1.4.1.1.12]'
+              key: 'net.if.neighbor.name.detailed[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: TEXT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var ifIdx = "{#SNMPINDEX}";
+                      var lines = value.split('\n');
+                      var cdpName = "", cdpPlatform = "", cdpCap = "";
+                      var lldpName = "", lldpDesc = "", lldpCap = "";
+                      
+                      function clean(v) { return v ? v.replace(/^.*?: /, '').replace(/"/g, '').trim() : ""; }
+                      function getHex(v) { return v ? v.replace(/^.*?: /, '').replace(/ /g, '').trim() : "00"; }
+                      
+                      for (var i = 0; i < lines.length; i++) {
+                        if (lines[i].indexOf(".23.1.2.1.1.6." + ifIdx + ".") !== -1) cdpName = clean(lines[i].split(' = ')[1]);
+                        if (lines[i].indexOf(".23.1.2.1.1.8." + ifIdx + ".") !== -1) cdpPlatform = clean(lines[i].split(' = ')[1]);
+                        if (lines[i].indexOf(".23.1.2.1.1.9." + ifIdx + ".") !== -1) cdpCap = getHex(lines[i].split(' = ')[1]);
+                        
+                        if (lines[i].indexOf(".8802.1.1.2.1.4.1.1.9.") !== -1 && lines[i].indexOf("." + ifIdx + ".") !== -1) lldpName = clean(lines[i].split(' = ')[1]);
+                        if (lines[i].indexOf(".8802.1.1.2.1.4.1.1.10.") !== -1 && lines[i].indexOf("." + ifIdx + ".") !== -1) lldpDesc = clean(lines[i].split(' = ')[1]);
+                        if (lines[i].indexOf(".8802.1.1.2.1.4.1.1.12.") !== -1 && lines[i].indexOf("." + ifIdx + ".") !== -1) lldpCap = getHex(lines[i].split(' = ')[1]);
+                      }
+                      
+                      var finalName = cdpName || lldpName;
+                      if (!finalName) return "";
+                      
+                      var type = "Device";
+                      
+                      // CDP Capability
+                      if (cdpCap) {
+                          var capVal = parseInt(cdpCap.substring(0, 8), 16);
+                          if (!isNaN(capVal)) {
+                              if (capVal & 0x80) type = "IP Phone";
+                              else if (capVal & 0x08) type = "Switch";
+                              else if (capVal & 0x01) type = "Router";
+                              else if (capVal & 0x10) type = "Host";
+                          }
+                      }
+                      
+                      // LLDP Capability
+                      if (lldpCap && type === "Device") {
+                          var capVal = parseInt(lldpCap.substring(0, 2), 16);
+                          if (!isNaN(capVal)) {
+                              if (capVal & 0x04) type = "IP Phone";
+                              else if (capVal & 0x10) type = "AP";
+                              else if (capVal & 0x20) type = "Switch";
+                              else if (capVal & 0x08) type = "Router";
+                              else if (capVal & 0x01) type = "Host";
+                          }
+                      }
+                      
+                      // Correction: Override 'Router' or 'Switch' if platform indicates AP
+                      var info = (cdpPlatform + " " + lldpDesc).toLowerCase();
+                      if (type === "Router" || type === "Switch" || type === "Device") {
+                          if (info.indexOf("access point") !== -1 || info.indexOf("air-") !== -1 || info.indexOf("ap ") !== -1 || info.indexOf("c91") !== -1) {
+                              type = "AP";
+                          }
+                      }
+                      
+                      var source = cdpName ? "CDP" : "LLDP";
+                      return finalName + " (" + type + ") (discovered by " + source + ")";
+              tags:
+                - tag: Monitoring
+                  value: Neighbors
+        - uuid: 8cbfa6206ca4434d9d6db923ede4bf08
+          name: 'Monitoring: Network Interface Errors & Discards'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.31.1.1.1.1]'
+          key: net.if.errors.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: ac40f9a2cbc6449d9c7ea325e4bd0927
+              name: 'Interface {#IFNAME}: Inbound discards'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.13.{#SNMPINDEX}'
+              key: 'net.if.in.discards[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pkt/s
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Discards'
+              trigger_prototypes:
+                - uuid: 01783249354348c9a82f68c9522af736
+                  expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.discards[{#IFNAME}],5m)>0'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.discards[{#IFNAME}],5m)=0'
+                  name: 'Interface {#IFNAME}: High inbound discard rate'
+                  priority: WARNING
+                  description: 'Detects inbound discards (dropped packets).'
+            - uuid: ef71b7cc82ad44b58072027516d2c553
+              name: 'Interface {#IFNAME}: Inbound errors'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.14.{#SNMPINDEX}'
+              key: 'net.if.in.errors[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pkt/s
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Errors'
+              trigger_prototypes:
+                - uuid: 55b395503a3146e89222b161b0739b1e
+                  expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.errors[{#IFNAME}],5m)>0'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.errors[{#IFNAME}],5m)=0'
+                  name: 'Interface {#IFNAME}: High inbound error rate'
+                  priority: WARNING
+                  description: 'Detects outbound errors on the interface.'
+            - uuid: 35544d4753c04b93999adbcef77f9f1e
+              name: 'Interface {#IFNAME}: FCS Errors'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.10.7.2.1.3.{#SNMPINDEX}'
+              key: 'net.if.in.fcs.errors[{#IFNAME}]'
+              delay: 5m
+              history: 7d
+              value_type: FLOAT
+              units: pkt/s
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+              tags:
+                - tag: Monitoring
+                  value: 'Interface Errors'
+              trigger_prototypes:
+                - uuid: ea466de928e549e4a69561539dedfcbc
+                  expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.fcs.errors[{#IFNAME}],5m)>0'
+                  recovery_mode: RECOVERY_EXPRESSION
+                  recovery_expression: 'avg(/Cisco Catalyst 9500 Switch/net.if.in.fcs.errors[{#IFNAME}],5m)=0'
+                  name: 'Interface {#IFNAME}: FCS Errors detected'
+                  priority: WARNING
+                  description: 'Detects Frame Check Sequence errors (physical layer issues).'
+          graph_prototypes:
+            - uuid: 93fe385c498b473eb20e87e53e367c85
+              name: 'Interface {#IFNAME} Discards'
+              yaxismax: '0'
+              graph_items:
+                - color: FFBF00
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.discards[{#IFNAME}]'
+            - uuid: 77b057aba52b4b1a9a5a54a5e905ad4d
+              name: 'Interface {#IFNAME} Errors'
+              yaxismax: '0'
+              graph_items:
+                - color: FFBF00
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.errors[{#IFNAME}]'
+            - uuid: c5698eaee00040b2a7677c251f79ee22
+              name: 'Interface {#IFNAME} FCS Errors'
+              yaxismax: '0'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: FF0000
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'net.if.in.fcs.errors[{#IFNAME}]'
+        - uuid: bd016e795bc54de6980fba6250f659f2
+          name: 'Monitoring: PoE Ports'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#POE_PORT_INDEX},1.3.6.1.2.1.105.1.1.1.15]'
+          key: poe.port.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: d75b220f38cd41d38cd01ef08e7859e9
+              name: 'PoE Port {#SNMPINDEX}: Power Output'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.105.1.1.1.15.{#SNMPINDEX}'
+              key: 'poe.port.power[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              units: W
+              preprocessing:
+                - type: MULTIPLIER
+                  parameters:
+                    - '0.001'
+              tags:
+                - tag: Monitoring
+                  value: PoE
+          graph_prototypes:
+            - uuid: e0d9616728b94bb485c241cc1d3ea9c5
+              name: 'Interface {#IFNAME} PoE Power Output'
+              yaxismax: '0'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'poe.port.power[{#SNMPINDEX}]'
+        - uuid: 8c0469522a6a4f709c4b9ccc1a0789d3
+          name: 'Monitoring: PoE PSE Units'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#PSE_INDEX},1.3.6.1.2.1.105.1.3.1.1.2]'
+          key: poe.pse.discovery
+          delay: 5m
+          item_prototypes:
+            - uuid: 96c2aa0e63234ae7aa1b486fcdfc0721
+              name: 'PoE: Switch {#SNMPINDEX} - Total Budget'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.105.1.3.1.1.2.{#SNMPINDEX}'
+              key: 'poe.budget[{#SNMPINDEX}]'
+              delay: 1h
+              history: 7d
+              units: W
+              description: 'The total power the PSE can supply (pethMainPsePower).'
+              tags:
+                - tag: Monitoring
+                  value: 'Power Supply'
+            - uuid: 3297e967260e446d9071665d16aff31a
+              name: 'PoE: Switch {#SNMPINDEX} - Power Consumption'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.105.1.3.1.1.4.{#SNMPINDEX}'
+              key: 'poe.consumption[{#SNMPINDEX}]'
+              delay: 5m
+              history: 7d
+              units: W
+              description: 'The actual power measured by the PSE (pethMainPseConsumptionPower).'
+              tags:
+                - tag: Monitoring
+                  value: 'Power Supply'
+          trigger_prototypes:
+            - uuid: d23b8cc741554b28ac3f087d4690c218
+              expression: 'last(/Cisco Catalyst 9500 Switch/poe.consumption[{#SNMPINDEX}]) > (last(/Cisco Catalyst 9500 Switch/poe.budget[{#SNMPINDEX}]) * 0.9)'
+              name: 'PoE: Switch {#SNMPINDEX} power usage high (>90%)'
+              priority: HIGH
+              description: 'PoE consumption is approaching the total available power budget on Switch {#SNMPINDEX}.'
+              manual_close: 'YES'
+          graph_prototypes:
+            - uuid: 6a75aadb3e1149048f8ec69e7cd39fd2
+              name: 'Switch {#SNMPINDEX} - Power Consumption'
+              yaxismax: '0'
+              ymax_type_1: ITEM
+              ymax_item_1:
+                host: 'Cisco Catalyst 9500 Switch'
+                key: 'poe.budget[{#SNMPINDEX}]'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Cisco Catalyst 9500 Switch'
+                    key: 'poe.consumption[{#SNMPINDEX}]'
+      valuemaps:
+        - uuid: 59d05103a22049ac91904a9278044893
+          name: '802.1x PAE State'
+          mappings:
+            - value: '1'
+              newvalue: Authenticated
+            - value: '2'
+              newvalue: Disconnected
+            - value: '3'
+              newvalue: Connecting
+            - value: '4'
+              newvalue: Authenticating
+            - value: '5'
+              newvalue: Authenticating
+            - value: '6'
+              newvalue: Aborting
+            - value: '7'
+              newvalue: 'Held (Fail)'
+            - value: '8'
+              newvalue: ForceAuth
+            - value: '9'
+              newvalue: ForceUnauth
+        - uuid: 422960655e8248c8b188c03c53a3399b
+          name: 'Cisco Config Status'
+          mappings:
+            - value: '0'
+              newvalue: Saved
+            - value: '1'
+              newvalue: Unsaved
+        - uuid: b542ea55d0e34d62a05628dd98cb4b5a
+          name: 'Cisco Device Tracking Status'
+          mappings:
+            - value: '1'
+              newvalue: Enabled
+            - value: '2'
+              newvalue: Disabled
+        - uuid: 4c42469426f4469e83e6022e33d26732
+          name: 'Cisco DHCP Snooping Status'
+          mappings:
+            - value: '1'
+              newvalue: Enabled
+            - value: '2'
+              newvalue: Disabled
+        - uuid: 1751e2ec29e94252a45a8990649f56c7
+          name: 'Cisco EnvMon State'
+          mappings:
+            - value: '1'
+              newvalue: normal
+            - value: '5'
+              newvalue: notPresent
+        - uuid: bf725e7a3ed74d4a94bd11e34ff17bc8
+          name: 'Cisco Interface Mode'
+          mappings:
+            - value: '1'
+              newvalue: Trunk
+            - value: '2'
+              newvalue: Access
+            - value: '3'
+              newvalue: 'Dynamic Auto'
+            - value: '4'
+              newvalue: 'Trunk (On)'
+            - value: '5'
+              newvalue: 'Access (Off)'
+            - value: '6'
+              newvalue: 'Dynamic Desirable'
+            - value: '7'
+              newvalue: Negotiating
+        - uuid: 81636aea41f04c6bac0787acb8cc2a67
+          name: 'Cisco Interface Status'
+          mappings:
+            - value: '1'
+              newvalue: Up
+            - value: '2'
+              newvalue: Down
+            - value: '3'
+              newvalue: Testing
+            - value: '4'
+              newvalue: Unknown
+            - value: '5'
+              newvalue: Dormant
+            - value: '6'
+              newvalue: NotPresent
+            - value: '7'
+              newvalue: LowerLayerDown
+        - uuid: e4e10ab53a704c7eba41bd67130e403d
+          name: 'Cisco IOS-XE: ifOperStatus'
+          mappings:
+            - value: '1'
+              newvalue: up
+            - value: '2'
+              newvalue: down
+            - value: '3'
+              newvalue: testing
+            - value: '4'
+              newvalue: unknown
+            - value: '5'
+              newvalue: dormant
+            - value: '6'
+              newvalue: notPresent
+            - value: '7'
+              newvalue: lowerLayerDown
+        - uuid: 9022f9e04d37420c9fbc571243775a8f
+          name: 'Cisco IP SLA Oper Status'
+          mappings:
+            - value: '1'
+              newvalue: ok
+            - value: '4'
+              newvalue: timeout
+            - value: '16'
+              newvalue: overThreshold
+        - uuid: b1ec238957614ead8b248d10f9c12709
+          name: 'Cisco IP SLA Status (Loose)'
+          mappings:
+            - value: '1'
+              newvalue: OK
+            - value: '2'
+              newvalue: OK
+            - value: '3'
+              newvalue: Disconnected
+            - value: '4'
+              newvalue: 'Over Threshold'
+            - value: '5'
+              newvalue: Timeout
+            - value: '6'
+              newvalue: Busy
+            - value: '7'
+              newvalue: 'Not Connected'
+            - value: '8'
+              newvalue: Dropped
+            - value: '9'
+              newvalue: 'Sequence Error'
+        - uuid: 20b24025d0824b2195dfb0625a6538f7
+          name: 'Cisco Stack Redundancy Status'
+          mappings:
+            - value: '1'
+              newvalue: Redundant
+            - value: '2'
+              newvalue: 'Not Redundant'
+        - uuid: de7c6445006c404b901872dcc4758a04
+          name: 'Cisco Stack Role'
+          mappings:
+            - value: '1'
+              newvalue: Master
+            - value: '2'
+              newvalue: Member
+            - value: '3'
+              newvalue: 'Not Applicable'
+            - value: '4'
+              newvalue: Standby
+        - uuid: 104f164a652847129eba57f9d7d1adee
+          name: 'Cisco Stack Role Formatted'
+          mappings:
+            - value: '1'
+              newvalue: Master
+            - value: '2'
+              newvalue: Member
+            - value: '3'
+              newvalue: 'Not Member'
+            - value: '4'
+              newvalue: Standby
+        - uuid: b66c8e26abd943a8a26fe1c934582df7
+          name: 'Cisco Stack State'
+          mappings:
+            - value: '1'
+              newvalue: Waiting
+            - value: '2'
+              newvalue: Progressing
+            - value: '3'
+              newvalue: Added
+            - value: '4'
+              newvalue: Ready
+            - value: '5'
+              newvalue: Master
+            - value: '6'
+              newvalue: Conflict
+            - value: '7'
+              newvalue: Removed
+        - uuid: 74b9d97d806d46a0991d07df9f9cc536
+          name: 'Cisco STP State'
+          mappings:
+            - value: '1'
+              newvalue: Disabled
+            - value: '2'
+              newvalue: Blocked
+            - value: '3'
+              newvalue: Listening
+            - value: '4'
+              newvalue: Learning
+            - value: '5'
+              newvalue: Forwarding
+            - value: '6'
+              newvalue: Broken
+        - uuid: 6ec69485123d46f59df66f7786411542
+          name: 'Service state'
+          mappings:
+            - value: '0'
+              newvalue: Down
+            - value: '1'
+              newvalue: Up
+  triggers:
+    - uuid: e736304885de4596acf2b78f58bf104c
+      expression: 'last(/Cisco Catalyst 9500 Switch/net.tcp.service[ssh])=0 and last(/Cisco Catalyst 9500 Switch/net.tcp.service[telnet])=0 and last(/Cisco Catalyst 9500 Switch/net.tcp.service[http])=0'
+      name: 'Device not accessible (No SSH, Telnet, or Web)'
+      priority: HIGH
+      description: 'Az eszköz egyik menedzsment interfészen (SSH, Telnet, HTTP) sem válaszol.'
+      tags:
+        - tag: Monitoring
+          value: 'Remote Access'
+    - uuid: 6297921468eb4d53aa0cef44798174d2
+      expression: 'last(/Cisco Catalyst 9500 Switch/cisco.config.running.last_changed) > last(/Cisco Catalyst 9500 Switch/cisco.config.startup.last_changed)'
+      name: 'Unsaved configuration changes detected'
+      priority: HIGH
+      description: 'A futó konfiguráció módosult az utolsó mentés óta! Reload esetén a változások elvesznek. Futtasd a ''write memory'' parancsot.'
+      manual_close: 'YES'
+      tags:
+        - tag: Monitoring
+          value: Configuration
+  graphs:
+    - uuid: b3ea46114a63458f8f1317d224d5cb9b
+      name: 'ARP Entries'
+      yaxismax: '0'
+      show_triggers: 'NO'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Cisco Catalyst 9500 Switch'
+            key: cisco.net.arp.count
+    - uuid: 70bcd86741d546178c1c490a8343d20d
+      name: 'CPU Usage'
+      ymin_type_1: FIXED
+      ymax_type_1: FIXED
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Cisco Catalyst 9500 Switch'
+            key: cisco.cpu.total.1m
