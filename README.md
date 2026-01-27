@@ -192,6 +192,5 @@ wr
 ---
 
 ## 📜 License
-These templates are free to use, modify, and distribute. If you find them useful, please star the repo! ⭐
-
-If you like the templates, you can support the project via PayPal (csehvendel@gmail.com) because a lot of coffee is wasted while grinding.
+These templates are free to use, modify, and distribute. If you find them useful, please star the repo AND/OR support the project via PayPal (csehvendel@gmail.com) because a lot of coffee is wasted while grinding.
+! ⭐
