@@ -192,6 +192,5 @@ wr
 ---
 
 ## 📜 License
-These templates are free to use, modify, and distribute. If you find them useful, please star the repo AND/OR support the project via [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](PayPal.Me/csehvendel
-) because a lot of coffee is wasted while grinding.
+These templates are free to use, modify, and distribute. If you find them useful, please star the repo AND/OR support the project via [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://www.paypal.com/paypalme/csehvendel) because a lot of coffee is wasted while grinding.
 ! ⭐
