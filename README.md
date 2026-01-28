@@ -46,6 +46,10 @@ The repository currently contains optimized templates for the following hardware
 ### 🔵 Ubiquiti UniFi Specifics
 * **Direct `mca-dump` Parsing:** Unlike standard templates, we parse the switch's internal JSON diagnostics via SSH.
 * **Real-time "Satisfaction" Score:** Immediate visibility into the user experience score reported by the switch.
+- **New Feature:** Physical Layer Error Detection. Triggers alert if CRC/Packet errors increase (indicating bad cabling).
+- **New Feature:** Full PoE Monitoring. Tracks total power budget and per-port consumption.
+- **Improvement:** Fixed "Unicast" packet monitoring logic.
+- **Optimization:** Refined triggers for better stability (using `min()` logic for counters).
 
 ### 🛡️ Cisco Catalyst Specifics
 * **Advanced IP SLA Monitoring:** Auto-discovery of complex SLA probes (UDP Jitter, TCP Connect, DNS, HTTP, VoIP scores) to monitor network quality beyond simple pings.
