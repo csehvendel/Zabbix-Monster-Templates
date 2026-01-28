@@ -488,15 +488,19 @@ zabbix_export:
                   parameters:
                     - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_broadcast.first()'
                 - type: CHANGE_PER_SECOND
-                - type: IN_RANGE
+                - type: MULTIPLIER
                   parameters:
-                    - '0'
-                    - '500000000'
+                    - '-1'
               master_item:
                 key: 'ssh.run[mca_dump]'
               tags:
                 - tag: Monitoring
                   value: 'Interface Traffic Types'
+              trigger_prototypes:
+                - uuid: ef79f706534d494b919dd1ca5483052b
+                  expression: 'avg(/Ubiquiti USW-Aggregation/net.if.in.broadcast[{#IFNAME}],5m) > 2000'
+                  name: 'Interface {#IFNAME}: Possible Broadcast Storm'
+                  priority: HIGH
             - uuid: d161fdcc5b164595835ff99ce389bb96
               name: 'Interface Port {#IFNAME}: Inbound Dropped Packets'
               type: DEPENDENT
@@ -547,10 +551,9 @@ zabbix_export:
                   parameters:
                     - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_multicast.first()'
                 - type: CHANGE_PER_SECOND
-                - type: IN_RANGE
+                - type: MULTIPLIER
                   parameters:
-                    - '0'
-                    - '500000000'
+                    - '-1'
               master_item:
                 key: 'ssh.run[mca_dump]'
               tags:
@@ -564,21 +567,13 @@ zabbix_export:
               value_type: FLOAT
               units: pps
               preprocessing:
-                - type: JAVASCRIPT
+                - type: JSONPATH
                   parameters:
-                    - |
-                      var data = JSON.parse(value);
-                      var port = data.port_table.find(function(p){ return p.port_idx == '{#IFNAME}'; });
-                      if (!port) return 0;
-                      var total = parseInt(port.rx_packets) || 0;
-                      var bcast = parseInt(port.rx_broadcast) || 0;
-                      var mcast = parseInt(port.rx_multicast) || 0;
-                      return total - bcast - mcast;
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_packets.first()'
                 - type: CHANGE_PER_SECOND
-                - type: IN_RANGE
+                - type: MULTIPLIER
                   parameters:
-                    - '0'
-                    - '500000000'
+                    - '-1'
               master_item:
                 key: 'ssh.run[mca_dump]'
               tags:
@@ -690,16 +685,9 @@ zabbix_export:
               value_type: FLOAT
               units: pps
               preprocessing:
-                - type: JAVASCRIPT
+                - type: JSONPATH
                   parameters:
-                    - |
-                      var data = JSON.parse(value);
-                      var port = data.port_table.find(function(p){ return p.port_idx == '{#IFNAME}'; });
-                      if (!port) return 0;
-                      var total = parseInt(port.tx_packets) || 0;
-                      var bcast = parseInt(port.tx_broadcast) || 0;
-                      var mcast = parseInt(port.tx_multicast) || 0;
-                      return total - bcast - mcast;
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_packets.first()'
                 - type: CHANGE_PER_SECOND
                 - type: IN_RANGE
                   parameters:
@@ -773,6 +761,11 @@ zabbix_export:
               tags:
                 - tag: Monitoring
                   value: 'Interface Status'
+              trigger_prototypes:
+                - uuid: 5599ea71264c4f2ba0d106b512b2edb5
+                  expression: 'count(/Ubiquiti USW-Aggregation/net.if.status[{#IFNAME}],10m,"ne","1") > 5'
+                  name: 'Interface {#IFNAME}: Link is flapping'
+                  priority: WARNING
             - uuid: 4e09befddb0748738b4b8a6e17153ab4
               name: 'Interface Port {#IFNAME}: STP State'
               type: DEPENDENT
@@ -963,72 +956,27 @@ zabbix_export:
               tags:
                 - tag: Interface
                   value: 'Port {#IFNAME}'
+            - uuid: 08dbc24ee69a4d33a4ad891028354c4f
+              expression: '(last(/Ubiquiti USW-Aggregation/net.if.in.errors[{#IFNAME}]) - min(/Ubiquiti USW-Aggregation/net.if.in.errors[{#IFNAME}],1h)) > 10 or (last(/Ubiquiti USW-Aggregation/net.if.out.errors[{#IFNAME}]) - min(/Ubiquiti USW-Aggregation/net.if.out.errors[{#IFNAME}],1h)) > 10'
+              name: 'Interface {#IFNAME}: High Error Rate (Bad Cable?)'
+              priority: AVERAGE
           graph_prototypes:
             - uuid: 0e3e2594c04f49a98ae1b293fb167ed3
               name: 'Interface Port {#IFNAME}: Dropped Packets'
-              yaxismax: '0'
               graph_items:
-                - color: 1A7C11
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
                   calc_fnc: ALL
                   item:
                     host: 'Ubiquiti USW-Aggregation'
                     key: 'net.if.in.dropped[{#IFNAME}]'
                 - sortorder: '1'
+                  drawtype: FILLED_REGION
                   color: '274482'
                   calc_fnc: ALL
                   item:
                     host: 'Ubiquiti USW-Aggregation'
                     key: 'net.if.out.dropped[{#IFNAME}]'
-            - uuid: 016e3645711a4d29bea401e576fd47b2
-              name: 'Interface Port {#IFNAME}: Inbound Traffic Types'
-              yaxismax: '0'
-              show_work_period: 'NO'
-              show_triggers: 'NO'
-              type: PIE
-              show_3d: 'YES'
-              graph_items:
-                - color: FF4000
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.in.broadcast[{#IFNAME}]'
-                - sortorder: '1'
-                  color: FFBF00
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.in.multicast[{#IFNAME}]'
-                - sortorder: '2'
-                  color: 80FF00
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.in.unicast[{#IFNAME}]'
-            - uuid: 03deb33a56674b218e3878c9a01554f2
-              name: 'Interface Port {#IFNAME}: Outbound Traffic Types'
-              yaxismax: '0'
-              show_work_period: 'NO'
-              show_triggers: 'NO'
-              type: PIE
-              show_3d: 'YES'
-              graph_items:
-                - color: FF4000
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.out.broadcast[{#IFNAME}]'
-                - sortorder: '1'
-                  color: FFBF00
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.out.multicast[{#IFNAME}]'
-                - sortorder: '2'
-                  color: 00FF00
-                  calc_fnc: MIN
-                  item:
-                    host: 'Ubiquiti USW-Aggregation'
-                    key: 'net.if.out.unicast[{#IFNAME}]'
             - uuid: ec05690820534ed2b525949e92f36ff9
               name: 'Interface Port {#IFNAME}: SFP RX Power'
               yaxismax: '0'
@@ -1067,19 +1015,61 @@ zabbix_export:
                     key: 'sfp.voltage[{#IFNAME}]'
             - uuid: f947eaa3d0924c8da360cb09f63c0e47
               name: 'Interface Port {#IFNAME}: Traffic'
-              yaxismax: '0'
               graph_items:
-                - color: 1A7C11
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
                   calc_fnc: ALL
                   item:
                     host: 'Ubiquiti USW-Aggregation'
                     key: 'net.if.in[{#IFNAME}]'
                 - sortorder: '1'
+                  drawtype: FILLED_REGION
                   color: '274482'
                   calc_fnc: ALL
                   item:
                     host: 'Ubiquiti USW-Aggregation'
                     key: 'net.if.out[{#IFNAME}]'
+            - uuid: 016e3645711a4d29bea401e576fd47b2
+              name: 'Interface Port {#IFNAME}: Traffic Types'
+              yaxismax: '0'
+              show_work_period: 'NO'
+              show_triggers: 'NO'
+              graph_items:
+                - color: FF4000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.in.broadcast[{#IFNAME}]'
+                - sortorder: '1'
+                  color: FFBF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.in.multicast[{#IFNAME}]'
+                - sortorder: '2'
+                  color: 80FF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.in.unicast[{#IFNAME}]'
+                - sortorder: '3'
+                  color: FF4000
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.out.broadcast[{#IFNAME}]'
+                - sortorder: '4'
+                  color: FFBF00
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.out.multicast[{#IFNAME}]'
+                - sortorder: '5'
+                  color: 00FF00
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti USW-Aggregation'
+                    key: 'net.if.out.unicast[{#IFNAME}]'
           master_item:
             key: 'ssh.run[mca_dump]'
           lld_macro_paths:
