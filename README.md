@@ -19,7 +19,7 @@ The repository currently contains optimized templates for the following hardware
 - **USW-Pro-Aggregation** (Switch Pro Aggregation)
 - **USW-Pro-48-POE**
 - **USW-Pro-48**
-- **U6-Pro**
+- **UAP-AC-Pro**
 
 ### 🟢 Cisco Catalyst Series
 *Deep SNMP monitoring with IP SLA and Stack support.*
