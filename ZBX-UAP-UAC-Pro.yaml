@@ -5,8 +5,8 @@ zabbix_export:
       name: 'Templates/Network devices'
   templates:
     - uuid: 5489bf280c6c452993d1c56b2b277822
-      template: 'Ubiquiti U6-Pro'
-      name: 'Ubiquiti U6-Pro'
+      template: 'Ubiquiti UAP-AC-Pro'
+      name: 'Ubiquiti UAP-AC-Pro'
       groups:
         - name: 'Templates/Network devices'
       items:
@@ -20,7 +20,7 @@ zabbix_export:
               value: Ping
           triggers:
             - uuid: 3c41c137f1764e3c9a66b3bc0742b975
-              expression: 'max(/Ubiquiti U6-Pro/icmpping,#3)=0'
+              expression: 'max(/Ubiquiti UAP-AC-Pro/icmpping,#3)=0'
               name: 'Device Unavailable (Ping Failed)'
               priority: DISASTER
               tags:
@@ -85,7 +85,7 @@ zabbix_export:
               value: 'IP Conflict'
           triggers:
             - uuid: 3bb6f5fe9858408a837c6d656dbe70b0
-              expression: 'last(/Ubiquiti U6-Pro/net.conflict.detection)<>"OK"'
+              expression: 'last(/Ubiquiti UAP-AC-Pro/net.conflict.detection)<>"OK"'
               name: 'Network Conflict Detected'
               priority: HIGH
               manual_close: 'YES'
@@ -134,7 +134,7 @@ zabbix_export:
               value: CPU
           triggers:
             - uuid: ccb4ac6ed39e400997a36db10a71a5c2
-              expression: 'min(/Ubiquiti U6-Pro/system.cpu.util,5m)>90'
+              expression: 'min(/Ubiquiti UAP-AC-Pro/system.cpu.util,5m)>90'
               name: 'High CPU usage (>90%)'
               priority: HIGH
               manual_close: 'YES'
@@ -240,7 +240,7 @@ zabbix_export:
               value: ARP
           triggers:
             - uuid: c6d25f807bfb4099a47d0ef200206963
-              expression: 'last(/Ubiquiti U6-Pro/system.mac.table.size) > 14400'
+              expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 14400'
               name: 'MAC Address Table is nearly full (>90%)'
               priority: HIGH
               description: 'The switch MAC address table is over 90% full (Threshold: 14400 / 16000). A full MAC table causes the switch to act like a hub (flooding packets), reducing performance and security.'
@@ -249,14 +249,14 @@ zabbix_export:
                 - tag: Monitoring
                   value: ARP
             - uuid: 0d8a5ba068ba49fca230e4431c81dac9
-              expression: 'last(/Ubiquiti U6-Pro/system.mac.table.size) > 12800'
+              expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 12800'
               name: 'MAC Address Table usage is high (>80%)'
               priority: WARNING
               description: 'The switch MAC address table is over 80% full (Threshold: 12800 / 16000).'
               manual_close: 'YES'
               dependencies:
                 - name: 'MAC Address Table is nearly full (>90%)'
-                  expression: 'last(/Ubiquiti U6-Pro/system.mac.table.size) > 14400'
+                  expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 14400'
               tags:
                 - tag: Monitoring
                   value: ARP
@@ -310,7 +310,7 @@ zabbix_export:
               value: Status
           triggers:
             - uuid: f730847dca444673873b5649b1d65996
-              expression: 'last(/Ubiquiti U6-Pro/u6.system.isolated)=1'
+              expression: 'last(/Ubiquiti UAP-AC-Pro/u6.system.isolated)=1'
               name: 'Device is Isolated (No Uplink)'
               priority: HIGH
               manual_close: 'YES'
@@ -380,7 +380,7 @@ zabbix_export:
               value: 'Uplink Interface'
           triggers:
             - uuid: 59217f5c2689465c88249358e26100e2
-              expression: 'find(/Ubiquiti U6-Pro/u6.system.uplink.if,,"like","eth0")=0'
+              expression: 'find(/Ubiquiti UAP-AC-Pro/u6.system.uplink.if,,"like","eth0")=0'
               name: 'Device Uplink is NOT Wired (Mesh Mode?)'
               priority: WARNING
               description: 'The uplink interface is not eth0. The AP might be in Wireless Uplink (Mesh) mode.'
@@ -501,7 +501,7 @@ zabbix_export:
               value: 'Remote Access'
           triggers:
             - uuid: 1d9d6bed5cb24a2f8cf0b33631fc7945
-              expression: 'last(/Ubiquiti U6-Pro/unifi.controller.state)<>2'
+              expression: 'last(/Ubiquiti UAP-AC-Pro/unifi.controller.state)<>2'
               name: 'Device Disconnected from Controller (State is not Provisioned)'
               priority: WARNING
               manual_close: 'YES'
@@ -611,7 +611,7 @@ zabbix_export:
                   value: 'Wired Interface Traffic Types'
               trigger_prototypes:
                 - uuid: 36516bb5818f43e38732ee447947bea7
-                  expression: 'avg(/Ubiquiti U6-Pro/net.if.in.broadcast[{#IFNAME}],5m) > 2000'
+                  expression: 'avg(/Ubiquiti UAP-AC-Pro/net.if.in.broadcast[{#IFNAME}],5m) > 2000'
                   name: 'Interface {#IFNAME}: Possible Broadcast Storm'
                   priority: HIGH
                   manual_close: 'YES'
@@ -873,7 +873,7 @@ zabbix_export:
                   value: 'Wired Interface Status'
               trigger_prototypes:
                 - uuid: 62b5ca78594e4f6ca8dabca6276444da
-                  expression: 'count(/Ubiquiti U6-Pro/net.if.status[{#IFNAME}],10m,"ne","1") > 5'
+                  expression: 'count(/Ubiquiti UAP-AC-Pro/net.if.status[{#IFNAME}],10m,"ne","1") > 5'
                   name: 'Interface {#IFNAME}: Link is flapping'
                   priority: WARNING
             - uuid: 75f7d189dc864d279aa9be8b45220a8c
@@ -896,7 +896,7 @@ zabbix_export:
                   value: STP
           trigger_prototypes:
             - uuid: 53e6573a45db499487c33b0870851540
-              expression: 'abs(min(/Ubiquiti U6-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) > 0'
+              expression: 'abs(min(/Ubiquiti UAP-AC-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
               name: 'Interface Port {#IFNAME}: Critical Inbound Bandwidth Usage (>95%)'
               priority: HIGH
               manual_close: 'YES'
@@ -904,7 +904,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Bandwidth
             - uuid: 0c3fb42cadbf4965ace8a33df95cf495
-              expression: 'min(/Ubiquiti U6-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) > 0'
+              expression: 'min(/Ubiquiti UAP-AC-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
               name: 'Interface Port {#IFNAME}: Critical Outbound Bandwidth Usage (>95%)'
               priority: HIGH
               manual_close: 'YES'
@@ -912,7 +912,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Bandwidth
             - uuid: 9bc344be8cb34e78aeb942ff0eaefd65
-              expression: 'abs(min(/Ubiquiti U6-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) > 0'
+              expression: 'abs(min(/Ubiquiti UAP-AC-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
               name: 'Interface Port {#IFNAME}: High Inbound Bandwidth Usage (>85%)'
               priority: WARNING
               manual_close: 'YES'
@@ -920,7 +920,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Bandwidth
             - uuid: 447e00b7f98c4136b9da7b9f9bfc85b7
-              expression: 'min(/Ubiquiti U6-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti U6-Pro/net.if.speed[{#IFNAME}]) > 0'
+              expression: 'min(/Ubiquiti UAP-AC-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
               name: 'Interface Port {#IFNAME}: High Outbound Bandwidth Usage (>85%)'
               priority: WARNING
               manual_close: 'YES'
@@ -928,7 +928,7 @@ zabbix_export:
                 - tag: Monitoring
                   value: Bandwidth
             - uuid: 326024add81f4cf6b0f03e64b0df7cb6
-              expression: '(last(/Ubiquiti U6-Pro/net.if.in.errors[{#IFNAME}]) - min(/Ubiquiti U6-Pro/net.if.in.errors[{#IFNAME}],1h)) > 10 or (last(/Ubiquiti U6-Pro/net.if.out.errors[{#IFNAME}]) - min(/Ubiquiti U6-Pro/net.if.out.errors[{#IFNAME}],1h)) > 10'
+              expression: '(last(/Ubiquiti UAP-AC-Pro/net.if.in.errors[{#IFNAME}]) - min(/Ubiquiti UAP-AC-Pro/net.if.in.errors[{#IFNAME}],1h)) > 10 or (last(/Ubiquiti UAP-AC-Pro/net.if.out.errors[{#IFNAME}]) - min(/Ubiquiti UAP-AC-Pro/net.if.out.errors[{#IFNAME}],1h)) > 10'
               name: 'Interface {#IFNAME}: High Error Rate (Bad Cable?)'
               priority: AVERAGE
           graph_prototypes:
@@ -939,14 +939,14 @@ zabbix_export:
                   color: 1A7C11
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.in.dropped[{#IFNAME}]'
                 - sortorder: '1'
                   drawtype: FILLED_REGION
                   color: '274482'
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.out.dropped[{#IFNAME}]'
             - uuid: 16cc62288eab43e4a31056fa2ebbe6ab
               name: 'Interface Port {#IFNAME}: Traffic'
@@ -955,14 +955,14 @@ zabbix_export:
                   color: 1A7C11
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.in[{#IFNAME}]'
                 - sortorder: '1'
                   drawtype: FILLED_REGION
                   color: '274482'
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.out[{#IFNAME}]'
             - uuid: 55aa5c5ed047499abc3f61d5dec78c80
               name: 'Interface Port {#IFNAME}: Traffic Types'
@@ -973,37 +973,37 @@ zabbix_export:
                 - color: FF4000
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.in.broadcast[{#IFNAME}]'
                 - sortorder: '1'
                   color: FFBF00
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.in.multicast[{#IFNAME}]'
                 - sortorder: '2'
                   color: 80FF00
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.in.unicast[{#IFNAME}]'
                 - sortorder: '3'
                   color: FF4000
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.out.broadcast[{#IFNAME}]'
                 - sortorder: '4'
                   color: FFBF00
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.out.multicast[{#IFNAME}]'
                 - sortorder: '5'
                   color: 80FF00
                   calc_fnc: MIN
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.if.out.unicast[{#IFNAME}]'
           master_item:
             key: 'ssh.run[mca_dump]'
@@ -1130,7 +1130,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: 3619972063b64b05aeac02372ef944d4
-                  expression: 'min(/Ubiquiti U6-Pro/u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}],5m)>0'
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}],5m)>0'
                   name: 'Network Issue ({#ESSID}): ARP Timeout (Gateway unreachable?)'
                   priority: HIGH
             - uuid: e20b7c39b9234908b6ab0162bb6e6942
@@ -1152,7 +1152,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: 882ba664e6304b4aa3d70190633cda4a
-                  expression: 'min(/Ubiquiti U6-Pro/u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}],5m)>0'
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}],5m)>0'
                   name: 'DHCP Issue on WiFi ({#ESSID}): Clients not receiving IP'
                   priority: DISASTER
                   manual_close: 'YES'
@@ -1187,7 +1187,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: 72d943c594714c9c8e62874e63c64bed
-                  expression: 'min(/Ubiquiti U6-Pro/u6.vap.anomaly.dns[{#ESSID},{#RADIO}],5m)>0'
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.dns[{#ESSID},{#RADIO}],5m)>0'
                   name: 'High DNS Latency on {#ESSID} ({#RADIO})'
                   priority: AVERAGE
                   manual_close: 'YES'
@@ -1225,7 +1225,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: 1321b060a8404de1bd3f4010fd17d8c2
-                  expression: 'min(/Ubiquiti U6-Pro/u6.vap.anomaly.icmp[{#ESSID},{#RADIO}],5m)>0'
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.icmp[{#ESSID},{#RADIO}],5m)>0'
                   name: 'High ICMP Latency on {#ESSID} ({#RADIO})'
                   priority: AVERAGE
                   manual_close: 'YES'
@@ -1314,7 +1314,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: 5dde598b0acb497e83a4dc0224dcb18c
-                  expression: 'last(/Ubiquiti U6-Pro/u6.vap.anomaly.weak_signal[{#ESSID},{#RADIO}],#5)>5'
+                  expression: 'last(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.weak_signal[{#ESSID},{#RADIO}],#5)>5'
                   name: 'Weak Signal Clients on {#ESSID} ({#RADIO}'
                   priority: INFO
             - uuid: 863419c1877a4df9a8bf820751cd5c81
@@ -1337,7 +1337,7 @@ zabbix_export:
                   value: 'Wireless Anomalies'
               trigger_prototypes:
                 - uuid: f671b722e2b648fb804d42281ba66901
-                  expression: 'min(/Ubiquiti U6-Pro/u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}],5m)>2'
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}],5m)>2'
                   name: 'Unstable WiFi ({#ESSID}): Multiple Clients Dropping Connection'
                   priority: HIGH
                   manual_close: 'YES'
@@ -1401,73 +1401,73 @@ zabbix_export:
                 - color: 1A7C11
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}]'
                 - sortorder: '1'
                   color: '274482'
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.dns_timeout[{#ESSID},{#RADIO}]'
                 - sortorder: '2'
                   color: F63100
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.disconnects[{#ESSID},{#RADIO}]'
                 - sortorder: '3'
                   color: 2774A4
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.tcp_latency[{#ESSID},{#RADIO}]'
                 - sortorder: '4'
                   color: A54F10
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.wifi_retries[{#ESSID},{#RADIO}]'
                 - sortorder: '5'
                   color: FC6EA3
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.low_phy[{#ESSID},{#RADIO}]'
                 - sortorder: '6'
                   color: 6C59DC
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.sleepy[{#ESSID},{#RADIO}]'
                 - sortorder: '7'
                   color: AC8C14
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.tcp_loss[{#ESSID},{#RADIO}]'
                 - sortorder: '8'
                   color: 611F27
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}]'
                 - sortorder: '9'
                   color: F230E0
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}]'
                 - sortorder: '10'
                   color: 5CCD18
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.dns[{#ESSID},{#RADIO}]'
                 - sortorder: '11'
                   color: BB2A02
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.anomaly.icmp[{#ESSID},{#RADIO}]'
             - uuid: 303384b500df44fda796866c3b2b3c18
               name: 'Satisfaction Score on {#ESSID}'
@@ -1476,7 +1476,7 @@ zabbix_export:
                 - color: 1A7C11
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'u6.vap.satisfaction[{#ESSID},{#RADIO}]'
             - uuid: 97b3337a9bf64eedb8d92df9dd4a473c
               name: 'Traffic on {#ESSID} ({#RADIO})'
@@ -1485,13 +1485,13 @@ zabbix_export:
                 - color: 1A7C11
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.vap.in[{#ESSID},{#RADIO}]'
                 - sortorder: '1'
                   color: '274482'
                   calc_fnc: ALL
                   item:
-                    host: 'Ubiquiti U6-Pro'
+                    host: 'Ubiquiti UAP-AC-Pro'
                     key: 'net.vap.out[{#ESSID},{#RADIO}]'
           master_item:
             key: 'ssh.run[mca_dump]'
@@ -1532,7 +1532,7 @@ zabbix_export:
           color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: system.cpu.util
     - uuid: 3a94106f6fda417a9ad961f70303229b
       name: 'Load AVG'
@@ -1541,19 +1541,19 @@ zabbix_export:
         - color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.system.load[1]'
         - sortorder: '1'
           color: '274482'
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.system.load[5]'
         - sortorder: '2'
           color: F63100
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.system.load[15]'
     - uuid: c4436e8d624c4edf818a58b66a126f82
       name: 'Mac Address Table Size'
@@ -1562,7 +1562,7 @@ zabbix_export:
         - color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: system.mac.table.size
     - uuid: 045c369cc5ce4365850fe95cbd9726f2
       name: 'Memory Usage'
@@ -1571,7 +1571,7 @@ zabbix_export:
         - color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: vm.memory.util
     - uuid: d4914982540141afa4f66ffdb6f0c124
       name: Ping
@@ -1581,7 +1581,7 @@ zabbix_export:
           color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: icmpping
     - uuid: 5efe09274f9d4586b4901541582ec5e7
       name: 'Wireless Client Technology'
@@ -1590,23 +1590,23 @@ zabbix_export:
         - color: 1A7C11
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.wlan.clients.count[legacy]'
         - sortorder: '1'
           color: '274482'
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.wlan.clients.count[n]'
         - sortorder: '2'
           color: F63100
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.wlan.clients.count[ac]'
         - sortorder: '3'
           color: FFFF00
           calc_fnc: ALL
           item:
-            host: 'Ubiquiti U6-Pro'
+            host: 'Ubiquiti UAP-AC-Pro'
             key: 'u6.wlan.clients.count[ax]'
