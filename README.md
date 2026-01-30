@@ -20,6 +20,7 @@ The repository currently contains optimized templates for the following hardware
 - **USW-Pro-48-POE**
 - **USW-Pro-48**
 - **UAP-AC-Pro**
+- **IW-HD**
 - **U6-PRO**
 - **U6-Enterprise**
 - **U6-IW**
