@@ -1,0 +1,2107 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: 441c0cb65c274cc9aca624c11eaf6f5c
+      name: 'Templates/Network devices'
+  templates:
+    - uuid: 5489bf280c6c452993d1c56b2b277822
+      template: 'Ubiquiti UAP-AC-Pro'
+      name: 'Ubiquiti UAP-AC-Pro'
+      groups:
+        - name: 'Templates/Network devices'
+      items:
+        - uuid: ed142fde35e14f38a9b77bc9d0656e20
+          name: Ping
+          type: SIMPLE
+          key: icmpping
+          history: 7d
+          tags:
+            - tag: Monitoring
+              value: Ping
+          triggers:
+            - uuid: 3c41c137f1764e3c9a66b3bc0742b975
+              expression: 'max(/Ubiquiti UAP-AC-Pro/icmpping,#3)=0'
+              name: 'Device Unavailable (Ping Failed)'
+              priority: DISASTER
+              tags:
+                - tag: Monitoring
+                  value: Ping
+        - uuid: 88c758d59e08402b87434a1e1276a90f
+          name: 'Network Conflict Detection'
+          type: DEPENDENT
+          key: net.conflict.detection
+          history: 7d
+          value_type: TEXT
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  
+                  var data = JSON.parse(value);
+                  var ipMap = {};
+                  var macMap = {};
+                  var conflicts = [];
+                  
+                  function addClient(ip, mac, source, vlan) {
+                      if (!ip || !mac || ip === '0.0.0.0') return;
+                      if (!ipMap[ip]) ipMap[ip] = [];
+                      ipMap[ip].push({mac: mac, loc: source});
+                      if (!macMap[mac]) macMap[mac] = [];
+                      var seen = false;
+                      for(var i=0; i<macMap[mac].length; i++) {
+                          if(macMap[mac][i] === source) seen = true;
+                      }
+                      if (!seen) macMap[mac].push(source);
+                  }
+                  
+                  // Wired
+                  if (data.port_table) {
+                      for (var i = 0; i < data.port_table.length; i++) {
+                          var p = data.port_table[i];
+                          if (p.mac_table) {
+                              for (var j = 0; j < p.mac_table.length; j++) {
+                                  var m = p.mac_table[j];
+                                  addClient(m.ip, m.mac, "Port " + p.port_idx, m.vlan);
+                              }
+                          }
+                      }
+                  }
+                  
+                  // Wireless
+                  if (data.vap_table) {
+                      for (var i = 0; i < data.vap_table.length; i++) {
+                          var v = data.vap_table[i];
+                          if (v.sta_table) {
+                              for (var j = 0; j < v.sta_table.length; j++) {
+                                  var s = v.sta_table[j];
+                                  var loc = (v.essid || "WiFi") + " (" + (v.radio || "?") + ")";
+                                  addClient(s.ip, s.mac, loc, s.vlan_id);
+                              }
+                          }
+                      }
+                  }
+                  
+                  for (var ip in ipMap) {
+                      var entries = ipMap[ip];
+                      var uniqueMacs = [];
+                      for(var i=0; i<entries.length; i++) {
+                          var mac = entries[i].mac;
+                          var exists = false;
+                          for(var k=0; k<uniqueMacs.length; k++) if(uniqueMacs[k]===mac) exists=true;
+                          if(!exists) uniqueMacs.push(mac);
+                      }
+                      if (uniqueMacs.length > 1) {
+                          conflicts.push("IP Conflict: " + ip + " is used by multiple MACs: " + uniqueMacs.join(', '));
+                      }
+                  }
+                  
+                  for (var mac in macMap) {
+                      var locs = macMap[mac];
+                      if (locs.length > 1) {
+                          conflicts.push("MAC Move/Loop: " + mac + " seen at multiple locations: " + locs.join(', '));
+                      }
+                  }
+                  
+                  return conflicts.length > 0 ? conflicts.join('\n') : "OK";
+                  
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'IP Conflict'
+          triggers:
+            - uuid: 3bb6f5fe9858408a837c6d656dbe70b0
+              expression: 'last(/Ubiquiti UAP-AC-Pro/net.conflict.detection)<>"OK"'
+              name: 'Network Conflict Detected'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Security
+        - uuid: 53afc1fa068c47ef818b8d00b230888f
+          name: 'SSH: Get mca-dump (Master)'
+          type: SSH
+          key: 'ssh.run[mca_dump]'
+          delay: 5m
+          history: '0'
+          value_type: TEXT
+          params: mca-dump
+          username: '{$SSH_UNIFI_USER}'
+          password: '{$SSH_UNIFI_PASSWORD}'
+          description: 'Master item: lekéri a teljes switch állapotot JSON-ben.'
+        - uuid: 1a6cd5613c4c4bf2be9dd544f03380fa
+          name: 'System: Contact'
+          type: SNMP_AGENT
+          snmp_oid: .1.3.6.1.2.1.1.4.0
+          key: system.contact
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          description: 'Kapcsolattartó információ (SysContact).'
+          inventory_link: CONTACT
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 38157579685347c9ad43e21341f620db
+          name: 'System: CPU Usage'
+          type: DEPENDENT
+          key: system.cpu.util
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.[''system-stats''].cpu'
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: CPU
+          triggers:
+            - uuid: ccb4ac6ed39e400997a36db10a71a5c2
+              expression: 'min(/Ubiquiti UAP-AC-Pro/system.cpu.util,5m)>90'
+              name: 'High CPU usage (>90%)'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: 'CPU Usage'
+        - uuid: eaee7c9ef1b14987b99846084fd99dd3
+          name: 'Inventory: Model'
+          type: DEPENDENT
+          key: system.hw.model
+          history: 7d
+          value_type: CHAR
+          inventory_link: TYPE
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.model
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 114c9957ab514e2595155a5567815f13
+          name: 'Inventory: Serial Number'
+          type: DEPENDENT
+          key: system.hw.serial
+          history: 7d
+          value_type: CHAR
+          inventory_link: SERIALNO_A
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.serial
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 81e57d300e7e47a7a182c03994ea9b28
+          name: 'System: Location'
+          type: SNMP_AGENT
+          snmp_oid: .1.3.6.1.2.1.1.6.0
+          key: system.location
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          description: 'A fizikai helyszín leírása (SysLocation).'
+          inventory_link: LOCATION
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 201e4ac000184ca68aaa7288661d00f0
+          name: 'System: Location Latitude'
+          type: DEPENDENT
+          key: system.location.lat
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LAT
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LAT:([0-9.]+)'
+                - \1
+          master_item:
+            key: system.location
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 5ca95658f1ae43b89792c5a487d62845
+          name: 'System: Location Longitude'
+          type: DEPENDENT
+          key: system.location.long
+          history: 7d
+          value_type: CHAR
+          inventory_link: LOCATION_LON
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'LONG:([0-9.]+)'
+                - \1
+          master_item:
+            key: system.location
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: c18dcc2654734ba2853d27bb81c7d15e
+          name: 'System: MAC Address Table Size'
+          type: DEPENDENT
+          key: system.mac.table.size
+          history: 7d
+          value_type: FLOAT
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  
+                  var data = JSON.parse(value);
+                  // Case 1: Direct value exists (Legacy devices) - we use this if available AND if it looks plausible (>1 if we have wifi clients)
+                  // BUT, on new firmware, total_mac_in_used might only count wired.
+                  // Safe approach: Always recount both to be sure.
+                  
+                  var count = 0;
+                  // Count Wired
+                  if (data.port_table) {
+                      for (var i = 0; i < data.port_table.length; i++) {
+                          if (data.port_table[i].mac_table) {
+                              count += data.port_table[i].mac_table.length;
+                          }
+                      }
+                  }
+                  // Count Wireless
+                  if (data.vap_table) {
+                      for (var i = 0; i < data.vap_table.length; i++) {
+                          if (data.vap_table[i].sta_table) {
+                              count += data.vap_table[i].sta_table.length;
+                          }
+                      }
+                  }
+                  return count;
+                  
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: ARP
+          triggers:
+            - uuid: c6d25f807bfb4099a47d0ef200206963
+              expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 14400'
+              name: 'MAC Address Table is nearly full (>90%)'
+              priority: HIGH
+              description: 'The switch MAC address table is over 90% full (Threshold: 14400 / 16000). A full MAC table causes the switch to act like a hub (flooding packets), reducing performance and security.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: ARP
+            - uuid: 0d8a5ba068ba49fca230e4431c81dac9
+              expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 12800'
+              name: 'MAC Address Table usage is high (>80%)'
+              priority: WARNING
+              description: 'The switch MAC address table is over 80% full (Threshold: 12800 / 16000).'
+              manual_close: 'YES'
+              dependencies:
+                - name: 'MAC Address Table is nearly full (>90%)'
+                  expression: 'last(/Ubiquiti UAP-AC-Pro/system.mac.table.size) > 14400'
+              tags:
+                - tag: Monitoring
+                  value: ARP
+        - uuid: ec2fac6d15104535bb1967c77f1c904c
+          name: 'System: Hostname (SNMP)'
+          type: SNMP_AGENT
+          snmp_oid: .1.3.6.1.2.1.1.5.0
+          key: system.name
+          delay: 1h
+          history: 7d
+          value_type: CHAR
+          inventory_link: NAME
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: f51ac29feff64408a5017494ab5f8fd4
+          name: 'Inventory: Firmware Version'
+          type: DEPENDENT
+          key: system.sw.version
+          history: 7d
+          value_type: CHAR
+          inventory_link: OS
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.version
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Hardware
+              value: Chassis
+        - uuid: 8c75ce6a9507492896265e9f37348e73
+          name: 'System: Isolated Status'
+          type: DEPENDENT
+          key: u6.system.isolated
+          history: 7d
+          value_type: FLOAT
+          description: 'Isolation status (true = isolated/disconnected).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.isolated
+            - type: BOOL_TO_DECIMAL
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: Status
+          triggers:
+            - uuid: f730847dca444673873b5649b1d65996
+              expression: 'last(/Ubiquiti UAP-AC-Pro/u6.system.isolated)=1'
+              name: 'Device is Isolated (No Uplink)'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Status
+        - uuid: bbda6818dbc94aa9be72fbe1f4229367
+          name: 'System: Load Average (1m)'
+          type: DEPENDENT
+          key: 'u6.system.load[1]'
+          value_type: FLOAT
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.sys_stats.loadavg_1
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Load Average'
+        - uuid: 4ebff78107ff48299ba436663051886d
+          name: 'System: Load Average (5m)'
+          type: DEPENDENT
+          key: 'u6.system.load[5]'
+          value_type: FLOAT
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.sys_stats.loadavg_5
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Load Average'
+        - uuid: 65253fa1a1704de59fd1bf6a45c558be
+          name: 'System: Load Average (15m)'
+          type: DEPENDENT
+          key: 'u6.system.load[15]'
+          value_type: FLOAT
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.sys_stats.loadavg_15
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Load Average'
+        - uuid: 3908fe60ff2444aca2648c09efa5e99f
+          name: 'System: Uplink Interface'
+          type: DEPENDENT
+          key: u6.system.uplink.if
+          history: 7d
+          value_type: CHAR
+          description: 'Current Uplink Interface (should be eth0 for wired).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.uplink
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Uplink Interface'
+          triggers:
+            - uuid: 59217f5c2689465c88249358e26100e2
+              expression: 'find(/Ubiquiti UAP-AC-Pro/u6.system.uplink.if,,"like","eth0")=0'
+              name: 'Device Uplink is NOT Wired (Mesh Mode?)'
+              priority: WARNING
+              description: 'The uplink interface is not eth0. The AP might be in Wireless Uplink (Mesh) mode.'
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Status
+        - uuid: 50d7f8721a014698a782e1c0c2e4f023
+          name: 'WLAN Clients: WiFi 5 (11ac)'
+          type: DEPENDENT
+          key: 'u6.wlan.clients.count[ac]'
+          value_type: FLOAT
+          description: 'Number of clients connected using WiFi 5 (11ac).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.ac
+          master_item:
+            key: u6.wlan.clients.distribution.json
+          tags:
+            - tag: Monitoring
+              value: 'Wireless Clients'
+        - uuid: de55a1a9c9d3495c936ccd4296407668
+          name: 'WLAN Clients: Legacy (11a/b/g)'
+          type: DEPENDENT
+          key: 'u6.wlan.clients.count[legacy]'
+          value_type: FLOAT
+          description: 'Number of clients connected using Legacy (11a/b/g).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.legacy
+          master_item:
+            key: u6.wlan.clients.distribution.json
+          tags:
+            - tag: Monitoring
+              value: 'Wireless Clients'
+        - uuid: 1ca8e5ea060d49a5845dc0a6a2bdb38d
+          name: 'WLAN Clients: WiFi 4 (11n)'
+          type: DEPENDENT
+          key: 'u6.wlan.clients.count[n]'
+          value_type: FLOAT
+          description: 'Number of clients connected using WiFi 4 (11n).'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.n
+          master_item:
+            key: u6.wlan.clients.distribution.json
+          tags:
+            - tag: Monitoring
+              value: 'Wireless Clients'
+        - uuid: fbe03b0a5a64455fb8a58e95d31588ad
+          name: 'WLAN: Client Technology Distribution (JSON)'
+          type: DEPENDENT
+          key: u6.wlan.clients.distribution.json
+          history: '0'
+          value_type: TEXT
+          description: 'Helper item to count clients by WiFi generation.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  var s = {ax:0, ac:0, n:0, legacy:0, total:0};
+                  if(data.vap_table){
+                    data.vap_table.forEach(function(v){
+                      if(v.sta_table){
+                        v.sta_table.forEach(function(c){
+                          s.total++;
+                          if(c.is_11ax) s.ax++;
+                          else if(c.is_11ac) s.ac++;
+                          else if(c.is_11n) s.n++;
+                          else s.legacy++;
+                        });
+                      }
+                    });
+                  }
+                  return JSON.stringify(s);
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Wireless Clients'
+        - uuid: babb486c5d684b0192117a83f4a01665
+          name: 'Management: Controller Connection State'
+          type: DEPENDENT
+          key: unifi.controller.state
+          history: 7d
+          value_type: FLOAT
+          trends: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.state
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 10m
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Remote Access'
+          triggers:
+            - uuid: 1d9d6bed5cb24a2f8cf0b33631fc7945
+              expression: 'last(/Ubiquiti UAP-AC-Pro/unifi.controller.state)<>2'
+              name: 'Device Disconnected from Controller (State is not Provisioned)'
+              priority: WARNING
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Management
+        - uuid: 79b7566fbfad45a08e34ee2619ee924f
+          name: 'Management: Controller URL'
+          type: DEPENDENT
+          key: unifi.inform.url
+          history: 7d
+          value_type: CHAR
+          description: 'Inform URL'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.inform_url
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: Management
+        - uuid: 53142af5ed66489db6ce29591fe9f481
+          name: 'System: Memory Used'
+          type: DEPENDENT
+          key: vm.memory.util
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  var used = data.sys_stats.mem_used;
+                  var total = data.sys_stats.mem_total;
+                  return (used / total) * 100;
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          tags:
+            - tag: Monitoring
+              value: 'Memory Usage'
+      discovery_rules:
+        - uuid: 368422e1431b44ac8250e6b66f4d9372
+          name: 'Port Discovery (mca-dump)'
+          type: DEPENDENT
+          key: net.if.discovery.mca
+          item_prototypes:
+            - uuid: 56cb00ac1e4942e487ef60775216a59c
+              name: 'Interface Port {#IFNAME}: LLDP Remote Chassis ID'
+              type: DEPENDENT
+              key: 'lldp.chassis[{#IFNAME}]'
+              history: 7d
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var portIdx = '{#IFNAME}'; // Macro is usually string
+                      var val = '';
+                      
+                      if (data.lldp_table) {
+                          for (var i = 0; i < data.lldp_table.length; i++) {
+                              // Loose comparison (==) handles string vs int
+                              if (data.lldp_table[i].local_port_idx == portIdx) {
+                                  val = data.lldp_table[i].chassis_id;
+                                  break;
+                              }
+                          }
+                      }
+                      return val;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Neighbors'
+            - uuid: 0acae81891ff4583a582b76fa0c5d7df
+              name: 'Interface Port {#IFNAME}: LLDP Remote Port ID'
+              type: DEPENDENT
+              key: 'lldp.port[{#IFNAME}]'
+              history: 7d
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var portIdx = '{#IFNAME}';
+                      var val = '';
+                      
+                      if (data.lldp_table) {
+                          for (var i = 0; i < data.lldp_table.length; i++) {
+                              if (data.lldp_table[i].local_port_idx == portIdx) {
+                                  val = data.lldp_table[i].port_id;
+                                  break;
+                              }
+                          }
+                      }
+                      return val;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Neighbors'
+            - uuid: 1ce2600be12440a0ade2f425357bcdbc
+              name: 'Interface Port {#IFNAME}: Inbound Broadcast Packets'
+              type: DEPENDENT
+              key: 'net.if.in.broadcast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_broadcast.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+              trigger_prototypes:
+                - uuid: 36516bb5818f43e38732ee447947bea7
+                  expression: 'avg(/Ubiquiti UAP-AC-Pro/net.if.in.broadcast[{#IFNAME}],5m) > 2000'
+                  name: 'Interface {#IFNAME}: Possible Broadcast Storm'
+                  priority: HIGH
+                  manual_close: 'YES'
+            - uuid: 6105279c8d8c4c719297a1b1f6310a03
+              name: 'Interface Port {#IFNAME}: Inbound Dropped Packets'
+              type: DEPENDENT
+              key: 'net.if.in.dropped[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_dropped.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Errors'
+            - uuid: 655edb0311d74424b61a9e478dc96d5c
+              name: 'Interface Port {#IFNAME}: Inbound Errors'
+              type: DEPENDENT
+              key: 'net.if.in.errors[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_errors.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Errors'
+            - uuid: d2297f76d6d6477185472f8f9c983615
+              name: 'Interface Port {#IFNAME}: Inbound Multicast Packets'
+              type: DEPENDENT
+              key: 'net.if.in.multicast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_multicast.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+            - uuid: 19938e69cb0e46798ef2e85b8a50fe70
+              name: 'Interface Port {#IFNAME}: Inbound Unicast Packets'
+              type: DEPENDENT
+              key: 'net.if.in.unicast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_packets.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-1'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+            - uuid: 51ecd9034a634a7abb5d25d3782e065f
+              name: 'Interface Port {#IFNAME}: Inbound Traffic'
+              type: DEPENDENT
+              key: 'net.if.in[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].rx_bytes.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-8'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic'
+            - uuid: de3f694f8b3645afb9b606871db01dd8
+              name: 'Interface Port {#IFNAME}: Outbound Broadcast Packets'
+              type: DEPENDENT
+              key: 'net.if.out.broadcast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_broadcast.first()'
+                - type: CHANGE_PER_SECOND
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '500000000'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+            - uuid: 5c44bd8f59714733a08f495bb18eac3e
+              name: 'Interface Port {#IFNAME}: Outbound Dropped Packets'
+              type: DEPENDENT
+              key: 'net.if.out.dropped[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_dropped.first()'
+                - type: CHANGE_PER_SECOND
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Errors'
+            - uuid: 727ff64280344988a3934b1a493ecc40
+              name: 'Interface Port {#IFNAME}: Outbound Errors'
+              type: DEPENDENT
+              key: 'net.if.out.errors[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_errors.first()'
+                - type: CHANGE_PER_SECOND
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Errors'
+            - uuid: 7a34f8ffbc6b464d96aca18dc9c1e193
+              name: 'Interface Port {#IFNAME}: Outbound Multicast Packets'
+              type: DEPENDENT
+              key: 'net.if.out.multicast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_multicast.first()'
+                - type: CHANGE_PER_SECOND
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '500000000'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+            - uuid: 77159e2b4d96463cb19e0a445d120632
+              name: 'Interface Port {#IFNAME}: Outbound Unicast Packets'
+              type: DEPENDENT
+              key: 'net.if.out.unicast[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: pps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_packets.first()'
+                - type: CHANGE_PER_SECOND
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '500000000'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic Types'
+            - uuid: 0dbbafbb004e4363ba35107fd7a113dd
+              name: 'Interface Port {#IFNAME}: Outbound Traffic'
+              type: DEPENDENT
+              key: 'net.if.out[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].tx_bytes.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '200000000000'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Traffic'
+            - uuid: 229bb0aaad5844aa81f7772b461202d9
+              name: 'Interface Port {#IFNAME}: Speed'
+              type: DEPENDENT
+              key: 'net.if.speed[{#IFNAME}]'
+              history: 7d
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].speed.first()'
+                - type: MULTIPLIER
+                  parameters:
+                    - '1000000'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Speed'
+            - uuid: c5f48a3065c748d2a54ff3d817016710
+              name: 'Interface Port {#IFNAME}: Status'
+              type: DEPENDENT
+              key: 'net.if.status[{#IFNAME}]'
+              history: 7d
+              valuemap:
+                name: 'Interface Status MCA'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].up.first()'
+                - type: BOOL_TO_DECIMAL
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wired Interface Status'
+              trigger_prototypes:
+                - uuid: 62b5ca78594e4f6ca8dabca6276444da
+                  expression: 'count(/Ubiquiti UAP-AC-Pro/net.if.status[{#IFNAME}],10m,"ne","1") > 5'
+                  name: 'Interface {#IFNAME}: Link is flapping'
+                  priority: WARNING
+            - uuid: 75f7d189dc864d279aa9be8b45220a8c
+              name: 'Interface Port {#IFNAME}: STP State'
+              type: DEPENDENT
+              key: 'net.if.stp.state[{#IFNAME}]'
+              history: 7d
+              value_type: CHAR
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.port_table[?(@.port_idx==''{#IFNAME}'')].stp_state.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: STP
+          trigger_prototypes:
+            - uuid: 53e6573a45db499487c33b0870851540
+              expression: 'abs(min(/Ubiquiti UAP-AC-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface Port {#IFNAME}: Critical Inbound Bandwidth Usage (>95%)'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Bandwidth
+            - uuid: 0c3fb42cadbf4965ace8a33df95cf495
+              expression: 'min(/Ubiquiti UAP-AC-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.95) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface Port {#IFNAME}: Critical Outbound Bandwidth Usage (>95%)'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Bandwidth
+            - uuid: 9bc344be8cb34e78aeb942ff0eaefd65
+              expression: 'abs(min(/Ubiquiti UAP-AC-Pro/net.if.in[{#IFNAME}],5m)) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface Port {#IFNAME}: High Inbound Bandwidth Usage (>85%)'
+              priority: WARNING
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Bandwidth
+            - uuid: 447e00b7f98c4136b9da7b9f9bfc85b7
+              expression: 'min(/Ubiquiti UAP-AC-Pro/net.if.out[{#IFNAME}],5m) > (last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) * 0.85) and last(/Ubiquiti UAP-AC-Pro/net.if.speed[{#IFNAME}]) > 0'
+              name: 'Interface Port {#IFNAME}: High Outbound Bandwidth Usage (>85%)'
+              priority: WARNING
+              manual_close: 'YES'
+              tags:
+                - tag: Monitoring
+                  value: Bandwidth
+            - uuid: 326024add81f4cf6b0f03e64b0df7cb6
+              expression: '(last(/Ubiquiti UAP-AC-Pro/net.if.in.errors[{#IFNAME}]) - min(/Ubiquiti UAP-AC-Pro/net.if.in.errors[{#IFNAME}],1h)) > 10 or (last(/Ubiquiti UAP-AC-Pro/net.if.out.errors[{#IFNAME}]) - min(/Ubiquiti UAP-AC-Pro/net.if.out.errors[{#IFNAME}],1h)) > 10'
+              name: 'Interface {#IFNAME}: High Error Rate (Bad Cable?)'
+              priority: AVERAGE
+          graph_prototypes:
+            - uuid: 4b39f8d9a747420b9676f4f316792e96
+              name: 'Interface Port {#IFNAME}: Dropped Packets'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.in.dropped[{#IFNAME}]'
+                - sortorder: '1'
+                  drawtype: FILLED_REGION
+                  color: '274482'
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.out.dropped[{#IFNAME}]'
+            - uuid: 16cc62288eab43e4a31056fa2ebbe6ab
+              name: 'Interface Port {#IFNAME}: Traffic'
+              graph_items:
+                - drawtype: FILLED_REGION
+                  color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.in[{#IFNAME}]'
+                - sortorder: '1'
+                  drawtype: FILLED_REGION
+                  color: '274482'
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.out[{#IFNAME}]'
+            - uuid: 55aa5c5ed047499abc3f61d5dec78c80
+              name: 'Interface Port {#IFNAME}: Traffic Types'
+              yaxismax: '0'
+              show_work_period: 'NO'
+              show_triggers: 'NO'
+              graph_items:
+                - color: FF4000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.in.broadcast[{#IFNAME}]'
+                - sortorder: '1'
+                  color: FFBF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.in.multicast[{#IFNAME}]'
+                - sortorder: '2'
+                  color: 80FF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.in.unicast[{#IFNAME}]'
+                - sortorder: '3'
+                  color: FF4000
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.out.broadcast[{#IFNAME}]'
+                - sortorder: '4'
+                  color: FFBF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.out.multicast[{#IFNAME}]'
+                - sortorder: '5'
+                  color: 80FF00
+                  calc_fnc: MIN
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.if.out.unicast[{#IFNAME}]'
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          lld_macro_paths:
+            - lld_macro: '{#IFALIAS}'
+              path: $.name
+            - lld_macro: '{#IFNAME}'
+              path: $.port_idx
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.port_table
+        - uuid: 2cf9458c5e8c4544b67ba62fd5e9f4c4
+          name: 'Device Tracking Discovery (ARP/IP)'
+          type: DEPENDENT
+          key: net.tracking.discovery
+          lifetime_type: DELETE_IMMEDIATELY
+          item_prototypes:
+            - uuid: 32fb51a03d8b438aba5347c2f5ded4f7
+              name: 'Device on Port {#PORT_IDX}: {#IP_ADDR}'
+              type: DEPENDENT
+              key: 'net.tracking.device[{#PORT_IDX},{#IP_ADDR},{#MAC_ADDR}]'
+              history: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var targetIp = '{#IP_ADDR}';
+                      var targetMac = '{#MAC_ADDR}';
+                      var type = '{#TYPE}';
+                      var foundMac = '';
+                      
+                      if (type === 'wired' && data.port_table) {
+                          for (var i=0; i<data.port_table.length; i++) {
+                              if (data.port_table[i].mac_table) {
+                                  for (var j=0; j<data.port_table[i].mac_table.length; j++) {
+                                      var m = data.port_table[i].mac_table[j];
+                                      if (m.ip == targetIp && m.mac == targetMac) {
+                                          return m.mac;
+                                      }
+                                  }
+                              }
+                          }
+                      } 
+                      else if (type === 'wireless' && data.vap_table) {
+                          for (var i=0; i<data.vap_table.length; i++) {
+                              if (data.vap_table[i].sta_table) {
+                                  for (var j=0; j<data.vap_table[i].sta_table.length; j++) {
+                                      var s = data.vap_table[i].sta_table[j];
+                                      if (s.ip == targetIp && s.mac == targetMac) {
+                                          return s.mac;
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                      return foundMac;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: ARP
+                - tag: Monitoring
+                  value: 'Device Tracking'
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  
+                  var data = JSON.parse(value);
+                  var output = [];
+                  
+                  // Wired
+                  if (data.port_table) {
+                      for (var i = 0; i < data.port_table.length; i++) {
+                          var port = data.port_table[i];
+                          if (port.mac_table) {
+                              for (var j = 0; j < port.mac_table.length; j++) {
+                                  var entry = port.mac_table[j];
+                                  if (entry.ip && entry.ip !== '0.0.0.0') {
+                                      output.push({
+                                          '{#PORT_IDX}': port.port_idx,
+                                          '{#IP_ADDR}': entry.ip,
+                                          '{#MAC_ADDR}': entry.mac,
+                                          '{#VLAN_ID}': entry.vlan,
+                                          '{#TYPE}': 'wired'
+                                      });
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  
+                  // Wireless
+                  if (data.vap_table) {
+                      for (var i = 0; i < data.vap_table.length; i++) {
+                          var vap = data.vap_table[i];
+                          if (vap.sta_table) {
+                              for (var j = 0; j < vap.sta_table.length; j++) {
+                                  var entry = vap.sta_table[j];
+                                  if (entry.ip && entry.ip !== '0.0.0.0') {
+                                      var portName = (vap.essid || 'Unknown') + ' (' + (vap.radio || '?') + ')';
+                                      output.push({
+                                          '{#PORT_IDX}': portName,
+                                          '{#IP_ADDR}': entry.ip,
+                                          '{#MAC_ADDR}': entry.mac,
+                                          '{#VLAN_ID}': (entry.vlan_id !== undefined) ? entry.vlan_id : entry.vlan,
+                                          '{#TYPE}': 'wireless'
+                                      });
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  
+                  return JSON.stringify(output);
+                  
+        - uuid: 7440e438003c41b0867f9ffb2c7c8b1c
+          name: 'Radio Discovery (Physical)'
+          type: DEPENDENT
+          key: u6.radio.discovery
+          item_prototypes:
+            - uuid: 8db8e50457044208a4907446afaa8e6b
+              name: 'Radio {#RADIO}: Current Channel'
+              type: DEPENDENT
+              key: 'u6.radio.channel[{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var rName = '{#RADIO}';
+                      var val = 0;
+                      // Try Radio Table first
+                      if (data.radio_table) {
+                          for (var i = 0; i < data.radio_table.length; i++) {
+                              if (data.radio_table[i].name === rName && data.radio_table[i].channel !== undefined) {
+                                  val = data.radio_table[i].channel;
+                                  return val;
+                              }
+                          }
+                      }
+                      // Fallback to VAP Table
+                      if (data.vap_table) {
+                          for (var i = 0; i < data.vap_table.length; i++) {
+                              if (data.vap_table[i].radio_name === rName || data.vap_table[i].radio === rName) {
+                                  if (data.vap_table[i].channel !== undefined) {
+                                      val = data.vap_table[i].channel;
+                                      return val; 
+                                  }
+                              }
+                          }
+                      }
+                      return val;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 12h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Radio Configuration'
+            - uuid: 80d1d75e221c41d0942368632b7dd8b3
+              name: 'Radio {#RADIO}: EIRP (Total Radiated Power)'
+              type: DEPENDENT
+              key: 'u6.radio.eirp[{#RADIO}]'
+              value_type: FLOAT
+              units: dBm
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var rName = '{#RADIO}';
+                      var tx = 0; 
+                      var gain = 0;
+                      var foundTx = false;
+                      // 1. Try Radio Table
+                      if (data.radio_table) {
+                          for (var i = 0; i < data.radio_table.length; i++) {
+                              if (data.radio_table[i].name === rName && data.radio_table[i].tx_power !== undefined) {
+                                  tx = data.radio_table[i].tx_power;
+                                  foundTx = true;
+                                  break;
+                              }
+                          }
+                      }
+                      // 2. Fallback: Try VAP Table
+                      if (!foundTx && data.vap_table) {
+                          for (var i = 0; i < data.vap_table.length; i++) {
+                              if ((data.vap_table[i].radio_name === rName || data.vap_table[i].radio === rName) && data.vap_table[i].tx_power !== undefined) {
+                                  tx = data.vap_table[i].tx_power;
+                                  foundTx = true;
+                                  break; 
+                              }
+                          }
+                      }
+                      // 3. Get Antenna Gain
+                      if (data.antenna_table && data.antenna_table[0]) {
+                          var key = rName + '_gain';
+                          if (data.antenna_table[0][key] !== undefined) {
+                              gain = data.antenna_table[0][key];
+                          }
+                      }
+                      return tx + gain;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Radio Performance'
+            - uuid: 8c51fdf5cf424edca2b768f2a50c5edc
+              name: 'Radio {#RADIO}: Channel Utilization (Total)'
+              type: DEPENDENT
+              key: 'u6.radio.utilization[{#RADIO}]'
+              value_type: FLOAT
+              units: '%'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                      var data = JSON.parse(value);
+                      var rName = '{#RADIO}';
+                      var val = 0;
+                      if (data.radio_table) {
+                          for (var i = 0; i < data.radio_table.length; i++) {
+                              if (data.radio_table[i].name === rName) {
+                                  if (data.radio_table[i].cu_total !== undefined) {
+                                      val = data.radio_table[i].cu_total;
+                                  } else if (data.radio_table[i].athstats && data.radio_table[i].athstats.cu_total !== undefined) {
+                                       val = data.radio_table[i].athstats.cu_total;
+                                  }
+                                  break;
+                              }
+                          }
+                      }
+                      return val;
+                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 10m
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Radio Performance'
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          lld_macro_paths:
+            - lld_macro: '{#RADIO}'
+              path: $.name
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.radio_table[:]'
+        - uuid: 00c4db04983547ac965afddb0c596a97
+          name: 'SSID (VAP) Discovery'
+          type: DEPENDENT
+          key: u6.vap.discovery
+          item_prototypes:
+            - uuid: 2b9818d5c8904942bca466790029020c
+              name: 'Inbound Traffic on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'net.vap.in[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].rx_bytes.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '-8'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Traffic'
+            - uuid: d7776f0f0a3d4828a3224279b27f5110
+              name: 'Outbound Traffic on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'net.vap.out[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              units: bps
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].tx_bytes.first()'
+                - type: CHANGE_PER_SECOND
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Traffic'
+            - uuid: 412b3525f3d84feb8640e0d2c0dcda50
+              name: 'Anomaly: ARP Timeout on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma, akik nem kapnak választ ARP kérésre (sta_arp_timeout). Gateway probléma lehet.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.sta_arp_timeout.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: 3619972063b64b05aeac02372ef944d4
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}],5m)>0'
+                  name: 'Network Issue ({#ESSID}): ARP Timeout (Gateway unreachable?)'
+                  priority: HIGH
+            - uuid: e20b7c39b9234908b6ab0162bb6e6942
+              name: 'DHCP Failures on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.no_dhcp_response.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: 882ba664e6304b4aa3d70190633cda4a
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}],5m)>0'
+                  name: 'DHCP Issue on WiFi ({#ESSID}): Clients not receiving IP'
+                  priority: DISASTER
+                  manual_close: 'YES'
+            - uuid: 916b403916364af9b6824988a4d1aed3
+              name: 'Anomaly: High Disconnect Count on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.disconnects[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Gyakori lecsatlakozások száma (high_disconnect_count).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_disconnect_count.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 5fe86564795f453c8bd97f4048115149
+              name: 'High DNS Latency on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.dns[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_dns_latency.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: 72d943c594714c9c8e62874e63c64bed
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.dns[{#ESSID},{#RADIO}],5m)>0'
+                  name: 'High DNS Latency on {#ESSID} ({#RADIO})'
+                  priority: AVERAGE
+                  manual_close: 'YES'
+            - uuid: 8721e1cc79964f52aed987104815431d
+              name: 'Anomaly: DNS Timeout on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.dns_timeout[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma, akik egyáltalán nem kapnak választ a DNS szervertől (sta_dns_timeout).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.sta_dns_timeout.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 255e8a45b59d439da3fa818c1e31a217
+              name: 'High ICMP Latency on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.icmp[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_icmp_rtt.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: 1321b060a8404de1bd3f4010fd17d8c2
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.icmp[{#ESSID},{#RADIO}],5m)>0'
+                  name: 'High ICMP Latency on {#ESSID} ({#RADIO})'
+                  priority: AVERAGE
+                  manual_close: 'YES'
+            - uuid: f306a9e5691b4f97bc259b3a5e238c61
+              name: 'Anomaly: Low PHY Rate on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.low_phy[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma nagyon alacsony fizikai kapcsolati sebességgel (low_phy_rate).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.low_phy_rate.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 489bcf6e99264ab693fb74150a9cd40c
+              name: 'Anomaly: Sleepy Clients on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.sleepy[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek, amelyek energiatakarékos módban ragadtak vagy nem válaszolnak (sleepy_client).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.sleepy_client.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 19e65d20d94247ffba9ebaa5d6671369
+              name: 'Anomaly: High TCP Latency on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.tcp_latency[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma magas TCP késleltetéssel. Ez lassú webböngészést okoz.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_tcp_latency.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 1611ac44ebf342bba4b5ae54644ba191
+              name: 'Anomaly: TCP Packet Loss on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.tcp_loss[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma TCP csomagvesztéssel (high_tcp_packet_loss).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_tcp_packet_loss.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 280bce4eb4b14b158bbc6ae813dc86bc
+              name: 'Weak Signal Clients on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.weak_signal[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.weak_signal.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: 5dde598b0acb497e83a4dc0224dcb18c
+                  expression: 'last(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.weak_signal[{#ESSID},{#RADIO}],#5)>5'
+                  name: 'Weak Signal Clients on {#ESSID} ({#RADIO}'
+                  priority: INFO
+            - uuid: 863419c1877a4df9a8bf820751cd5c81
+              name: 'Anomaly: WiFi Drops on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Azon kliensek száma, akiknél a Wi-Fi kapcsolat váratlanul megszakadt (high_wifi_drops).'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_wifi_drops.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+              trigger_prototypes:
+                - uuid: f671b722e2b648fb804d42281ba66901
+                  expression: 'min(/Ubiquiti UAP-AC-Pro/u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}],5m)>2'
+                  name: 'Unstable WiFi ({#ESSID}): Multiple Clients Dropping Connection'
+                  priority: HIGH
+                  manual_close: 'YES'
+            - uuid: 12a6d98986a1410fbe0731ca34a1e0b3
+              name: 'Anomaly: High WiFi Retries on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.anomaly.wifi_retries[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              description: 'Kliensek száma magas újraküldési aránnyal (high_wifi_retries). Ez erős interferenciára vagy távoli kliensekre utal.'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].anomalies_bar_chart_now.high_wifi_retries.first()'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 6bb3680736144707a03feab164dd4d07
+              name: 'Clients on {#ESSID} ({#RADIO})'
+              type: DEPENDENT
+              key: 'u6.vap.clients[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].num_sta.first()'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: SSID
+                - tag: Monitoring
+                  value: 'Wireless Clients'
+            - uuid: 3a4c645552964b2c9ccd47858ef7bf3b
+              name: 'Satisfaction Score on {#ESSID}'
+              type: DEPENDENT
+              key: 'u6.vap.satisfaction[{#ESSID},{#RADIO}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.vap_table[?(@.essid==''{#ESSID}'' && @.radio==''{#RADIO}'')].satisfaction.first()'
+                - type: IN_RANGE
+                  parameters:
+                    - '0'
+                    - '100'
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: SSID
+            - uuid: 08faa4f79cfe46bf9f3b21f4c6e8e0d4
+              name: 'Anomaly: ARP Timeout on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.arp[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.arp_timeout;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: e147fd03ac3842e1bc2fc1c48a63c641
+              name: 'Anomaly: DHCP Failures on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.dhcp[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.dhcp_timeout;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: b3af9badb9fe4682b422224897f1aea4
+              name: 'Anomaly: DNS Timeout on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.dns[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.dns_timeout;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 12a023c2cbbe4570b1ad6bc9726f1e23
+              name: 'Anomaly: WiFi Drops on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.drops[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.wifi_retries;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 5c118a2b6ba148afaf2d20195a66005a
+              name: 'Anomaly: High WiFi Retries on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.retries[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.high_wifi_retries;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+            - uuid: 0680f49c3c0347d3ae36110191c3f8e8
+              name: 'Anomaly: High TCP Latency on {#VAP_NAME}'
+              type: DEPENDENT
+              key: 'u6.wlan.anomaly.tcp_latency[{#VAP_NAME}]'
+              value_type: FLOAT
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      
+                                      var data = JSON.parse(value);
+                                      var vapName = '{#VAP_NAME}';
+                                      var val = 0;
+                                      if (data.vap_table) {
+                                          for(var i=0; i<data.vap_table.length; i++) {
+                                              var v = data.vap_table[i];
+                                              var vName = (v.essid || 'Unknown') + ' (' + (v.radio || '?') + ')';
+                                              if (vName === vapName) {
+                                                  // Found VAP. Check anomalies.
+                                                  if (v.anomalies_bar_chart) {
+                                                      // path like anomalies_bar_chart.dhcp_timeout
+                                                      var metric = v.anomalies_bar_chart.high_tcp_latency;
+                                                      if (metric !== undefined) val = metric;
+                                                  }
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                      return val;
+                                      
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: 'ssh.run[mca_dump]'
+              tags:
+                - tag: Monitoring
+                  value: 'Wireless Anomalies'
+          graph_prototypes:
+            - uuid: d0a6c68feb204abcb693af8565daeb36
+              name: 'Anomalies on {#ESSID} ({#RADIO})'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.arp_timeout[{#ESSID},{#RADIO}]'
+                - sortorder: '1'
+                  color: '274482'
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.dns_timeout[{#ESSID},{#RADIO}]'
+                - sortorder: '2'
+                  color: F63100
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.disconnects[{#ESSID},{#RADIO}]'
+                - sortorder: '3'
+                  color: 2774A4
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.tcp_latency[{#ESSID},{#RADIO}]'
+                - sortorder: '4'
+                  color: A54F10
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.wifi_retries[{#ESSID},{#RADIO}]'
+                - sortorder: '5'
+                  color: FC6EA3
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.low_phy[{#ESSID},{#RADIO}]'
+                - sortorder: '6'
+                  color: 6C59DC
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.sleepy[{#ESSID},{#RADIO}]'
+                - sortorder: '7'
+                  color: AC8C14
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.tcp_loss[{#ESSID},{#RADIO}]'
+                - sortorder: '8'
+                  color: 611F27
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.wifi_drops[{#ESSID},{#RADIO}]'
+                - sortorder: '9'
+                  color: F230E0
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.dhcp[{#ESSID},{#RADIO}]'
+                - sortorder: '10'
+                  color: 5CCD18
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.dns[{#ESSID},{#RADIO}]'
+                - sortorder: '11'
+                  color: BB2A02
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.anomaly.icmp[{#ESSID},{#RADIO}]'
+            - uuid: 303384b500df44fda796866c3b2b3c18
+              name: 'Satisfaction Score on {#ESSID}'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'u6.vap.satisfaction[{#ESSID},{#RADIO}]'
+            - uuid: 97b3337a9bf64eedb8d92df9dd4a473c
+              name: 'Traffic on {#ESSID} ({#RADIO})'
+              yaxismax: '0'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.vap.in[{#ESSID},{#RADIO}]'
+                - sortorder: '1'
+                  color: '274482'
+                  calc_fnc: ALL
+                  item:
+                    host: 'Ubiquiti UAP-AC-Pro'
+                    key: 'net.vap.out[{#ESSID},{#RADIO}]'
+          master_item:
+            key: 'ssh.run[mca_dump]'
+          lld_macro_paths:
+            - lld_macro: '{#APMAC}'
+              path: $.bssid
+            - lld_macro: '{#ESSID}'
+              path: $.essid
+            - lld_macro: '{#RADIO}'
+              path: $.radio
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.vap_table[:]'
+      valuemaps:
+        - uuid: 45c2eef937ac48e49270eece47d4ef3a
+          name: 'Interface Status'
+          mappings:
+            - value: '1'
+              newvalue: Up
+            - value: '2'
+              newvalue: Down
+            - value: '3'
+              newvalue: Testing
+        - uuid: aaddb3c6572145c6acb488e0393bd09b
+          name: 'Interface Status MCA'
+          mappings:
+            - value: '1'
+              newvalue: Up
+            - value: '0'
+              newvalue: Down
+  graphs:
+    - uuid: 85680fd7a5e24cf7ab4526a5d5bdf428
+      name: 'CPU Usage'
+      yaxismax: '0'
+      graph_items:
+        - drawtype: FILLED_REGION
+          color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: system.cpu.util
+    - uuid: 3a94106f6fda417a9ad961f70303229b
+      name: 'Load AVG'
+      yaxismax: '0'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.system.load[1]'
+        - sortorder: '1'
+          color: '274482'
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.system.load[5]'
+        - sortorder: '2'
+          color: F63100
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.system.load[15]'
+    - uuid: c4436e8d624c4edf818a58b66a126f82
+      name: 'Mac Address Table Size'
+      yaxismax: '0'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: system.mac.table.size
+    - uuid: 045c369cc5ce4365850fe95cbd9726f2
+      name: 'Memory Usage'
+      yaxismax: '0'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: vm.memory.util
+    - uuid: d4914982540141afa4f66ffdb6f0c124
+      name: Ping
+      yaxismax: '0'
+      graph_items:
+        - drawtype: FILLED_REGION
+          color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: icmpping
+    - uuid: 5efe09274f9d4586b4901541582ec5e7
+      name: 'Wireless Client Technology'
+      yaxismax: '0'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.wlan.clients.count[legacy]'
+        - sortorder: '1'
+          color: '274482'
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.wlan.clients.count[n]'
+        - sortorder: '2'
+          color: F63100
+          calc_fnc: ALL
+          item:
+            host: 'Ubiquiti UAP-AC-Pro'
+            key: 'u6.wlan.clients.count[ac]'
