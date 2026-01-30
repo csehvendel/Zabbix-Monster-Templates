@@ -19,6 +19,7 @@ The repository currently contains optimized templates for the following hardware
 - **USW-Pro-Aggregation** (Switch Pro Aggregation)
 - **USW-Pro-48-POE**
 - **USW-Pro-48**
+- **UAP-AC-Pro**
 - **U6-PRO**
 - **U6-Enterprise**
 
