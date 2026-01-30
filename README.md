@@ -22,6 +22,7 @@ The repository currently contains optimized templates for the following hardware
 - **UAP-AC-Pro**
 - **U6-PRO**
 - **U6-Enterprise**
+- **U6-IW**
 
 
 ### 🟢 Cisco Catalyst Series
