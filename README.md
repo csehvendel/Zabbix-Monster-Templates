@@ -54,6 +54,7 @@ The repository currently contains optimized templates for the following hardware
 - **New Feature:** Full PoE Monitoring. Tracks total power budget and per-port consumption.
 - **Improvement:** Fixed "Unicast" packet monitoring logic.
 - **Optimization:** Refined triggers for better stability (using `min()` logic for counters).
+- **Deep RF Monitoring** Radiated Power / Channel Utilization etc... 
 
 ### 🛡️ Cisco Catalyst Specifics
 * **Advanced IP SLA Monitoring:** Auto-discovery of complex SLA probes (UDP Jitter, TCP Connect, DNS, HTTP, VoIP scores) to monitor network quality beyond simple pings.
