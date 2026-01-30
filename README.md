@@ -13,20 +13,19 @@ This collection aims to fill the gaps left by standard "out-of-the-box" template
 
 The repository currently contains optimized templates for the following hardware:
 
-### 🔵 Ubiquiti UniFi Series
-*Direct system querying (`mca-dump`) for deep diagnostics.*
-- **USW-Aggregation** (Switch Aggregation)
-- **USW-Pro-Aggregation** (Switch Pro Aggregation)
-- **USW-Pro-48-POE**
-- **USW-Pro-48**
-- **UAP-AC-Pro**
-- **IW-HD**
-- **U6-PRO**
-- **U6-Enterprise**
-- **U6-IW**
+### 🔵 Ubiquiti UniFi Series (Monster Edition)
+*Direct system querying (`mca-dump`) for deep diagnostics with advanced JS parsing.*
 
+| Device Model | Architecture | Key Features Enabled |
+| :--- | :--- | :--- |
+| **U6 Enterprise** | ARM / Qualcomm | WiFi 6E (6GHz), VAP Fallback, Anomaly Detection |
+| **U6 Pro** | ARM / Qualcomm | WiFi 6, VAP Fallback, Client Distribution |
+| **U6 In-Wall** | ARM / MediaTek | **Hybrid Tracking** (Wired + Wireless), 4-Port Switch Mon. |
+| **IW-HD** | MIPS / MediaTek | **Hybrid Tracking**, PoE Passthrough, Port Stats |
+| **UAP-AC-Pro** | MIPS / Qualcomm | Legacy Support, Anomaly Mining, LLDP Fixes |
+| **UAP-AC-LR** | MIPS / Qualcomm | Interface-based Discovery, Long Range Radio stats |
 
-### 🟢 Cisco Catalyst Series
+### 🟢 Cisco Catalyst Series (Monster Edition)
 *Deep SNMP monitoring with IP SLA and Stack support.*
 - **Cisco Catalyst 9200 / 9200L**
 - **Cisco Catalyst 9300 / 9300L**
@@ -38,32 +37,68 @@ The repository currently contains optimized templates for the following hardware
 **Capabilities available across all templates in this repository:**
 
 * **Mirrored Traffic Graphs:** Inbound traffic is visualized in the negative range (inverted) while outbound is positive. This allows for an instant, clean visual overview of traffic flow on graphs.
-* **Deep Inventory Collection:** Automatic gathering of Serial Numbers, Firmware versions, and Model specifics.
-* **Transceiver (SFP) Diagnostics:** Detailed monitoring of Optical levels (TX/RX), Temperature, Vendor information, and Serial numbers for fiber modules.
-* **High-Precision Metrics:** Optimized polling intervals for critical data points to ensure you never miss a spike or a drop.
-* **Geolocation Ready:** Parses custom SNMP Location strings (containing `LAT:`/`LONG:`) to automatically place devices on Zabbix Maps.
-* **Network Loop & Conflict Detection:** Instant alerts for IP or MAC conflicts detected by the switch.
-* **Fan & Temperature Health:** Detailed internal sensor readings not always available via standard SNMP.
+* **Automatic Map Coordinates:** The templates automatically extract GPS coordinates (`system.location` or SNMP) and populate the Zabbix Host Inventory fields. This enables automatic placement on **Geomaps**.
 
 ---
 
-## 🧠 Vendor-Specific Features
+## 🧠 Deep Dive: Ubiquiti UniFi Logic
 
-### 🔵 Ubiquiti UniFi Specifics
-* **Direct `mca-dump` Parsing:** Unlike standard templates, we parse the switch's internal JSON diagnostics via SSH.
-* **Real-time "Satisfaction" Score:** Immediate visibility into the user experience score reported by the switch.
-- **New Feature:** Physical Layer Error Detection. Triggers alert if CRC/Packet errors increase (indicating bad cabling).
-- **New Feature:** Full PoE Monitoring. Tracks total power budget and per-port consumption.
-- **Improvement:** Fixed "Unicast" packet monitoring logic.
-- **Optimization:** Refined triggers for better stability (using `min()` logic for counters).
-- **Deep RF Monitoring** Radiated Power / Channel Utilization etc... 
+Standard SNMP templates often fail on modern UniFi firmware. These templates use a **Single-Item-Master** approach (SSH `mca-dump`) with advanced JavaScript preprocessing to extract everything in one go.
 
-### 🛡️ Cisco Catalyst Specifics
-* **Advanced IP SLA Monitoring:** Auto-discovery of complex SLA probes (UDP Jitter, TCP Connect, DNS, HTTP, VoIP scores) to monitor network quality beyond simple pings.
-* **StackWise Monitoring:** Full visibility into Stack ring status, member availability, and stack port speeds.
-* **Port Security & Err-Disable:** Alerts if a port is shut down due to security violations or loop protection.
+### 1. Universal Radio Analytics (VAP Fallback)
+* **The Problem:** Newer firmware often reports `0` or `null` for Channel and TX Power in the standard `radio_table`.
+* **The Solution:** These templates automatically fallback to scanning the Virtual Access Point (VAP) table to extract real-world EIRP, Channel Utilization, and Operating Channels.
+
+### 2. Hybrid Client Tracking (Wired + Wireless)
+* **Target:** In-Wall units (U6-IW, IW-HD).
+* **The Feature:** Automatically discovers clients plugged into the physical switch ports **AND** WiFi clients.
+* **Result:** A unified `System: MAC Address Table Size` count (Port + WLAN) and unified tracking list.
+
+### 3. Advanced Anomaly Detection
+* Mines deep JSON data to find hidden issues:
+    * DHCP Timeouts & DNS Latency
+    * ARP Timeouts
+    * High WiFi Retries & Packet Drops
+
+### 4. Robust Discovery
+* **LLDP 2.0:** Handles data type mismatches (string vs int) to reliably find neighbor switch information even on Legacy MIPS devices.
+* **Conflict Detection:** Built-in JS logic to identify IP conflicts and MAC loops across the AP's bridge.
 
 ---
+
+## 🧠 Deep Dive: Cisco Catalyst Logic
+
+### 1. Stack-Aware Monitoring
+The templates automatically detect if the switch is part of a **StackWise** configuration.
+* **Stack Ring Speed:** Monitors the backplane bandwidth (e.g., 480Gbps).
+* **Member Status:** Alerts if a stack member goes offline or changes priority.
+* **Individual CPU/Mem:** Monitors resources for *each* switch in the stack, not just the Master.
+
+### 2. IP SLA (Service Level Agreement)
+Automatically discovers configured IP SLA probes on the switch.
+* **RTT (Round Trip Time):** Measures latency to target.
+* **Jitter:** Monitors voice quality metrics (source-to-dest and dest-to-source).
+* **Packet Loss:** Tracks lost packets in real-time.
+* *Requirement:* The IP SLA must be configured and active on the switch (IOS-XE).
+
+### 3. SFP & Transceiver Health
+Reads the DOM (Digital Optical Monitoring) data from SFP/SFP+ modules.
+* **RX/TX Power (dBm):** Alerts on low signal levels (fiber cuts/bends).
+* **Temperature & Voltage:** Hardware health monitoring.
+* **Serial Number Tracking:** Automatically inventories connected optics.
+
+### 4. PoE (Power over Ethernet)
+* **Total Power Budget:** Visualizes available vs. used power.
+* **Port-Level PoE:** Tracks power consumption per port (useful for identifying power-hungry APs or cameras).
+
+---
+
+### Installation Steps
+
+1.  Download the `.yaml` or `.json` files.
+2.  Import them into Zabbix (**Configuration** -> **Templates** -> **Import**).
+3.  Assign the appropriate template to your Host.
+4.  Wait for **Discovery** to run (Standard LLDP/VAP/Interface discovery). ☕
 
 ## 🛠️ Setup Guide (Step-by-Step)
 
